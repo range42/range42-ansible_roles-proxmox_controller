@@ -1,0 +1,18 @@
+---
+####
+
+- name: NODE LEVEL - ENABLE FIREWALL
+  uri:
+    url: "https://{{ proxmox_api_host }}/api2/json/nodes/{{ proxmox_node }}/firewall/options"
+    method: PUT
+    headers:
+      Authorization: "PVEAPIToken={{ proxmox_api_user }}!{{ proxmox_api_token_id }}={{ proxmox_api_token_secret }}"
+    body_format: json
+    body:
+      enable: 1
+    validate_certs: no
+  register: firewall_node_output
+  when: proxmox_vm_action == "firewall_node_enable"
+
+- debug: var=firewall_node_output
+  when: proxmox_vm_action == "firewall_node_enable"

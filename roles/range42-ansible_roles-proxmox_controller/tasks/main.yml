@@ -1,0 +1,86 @@
+---
+#### #### #### #### #### #### #### #### #### #### #### #### #### #### #### ####
+#### #### #### #### #### #### #### #### #### #### #### #### #### #### #### ####
+#### #### #### #### #### #### #### #### #### #### #### #### #### #### #### ####
+
+- name: INCLUDE - ./include/vm_start.yaml
+  ansible.builtin.include_tasks: "./include/vm_start.yaml"
+  when: proxmox_vm_action == "vm_start"
+
+- name: INCLUDE - ./include/vm_stop.yaml
+  ansible.builtin.include_tasks: "./include/vm_stop.yaml"
+  when: proxmox_vm_action == "vm_stop"
+
+- name: INCLUDE - ./include/vm_stop_force.yaml
+  ansible.builtin.include_tasks: "./include/vm_stop_force.yaml"
+  when: proxmox_vm_action == "vm_stop_force"
+
+#### #### #### #### #### #### #### #### #### #### #### #### #### #### #### ####
+#### #### #### #### #### #### #### #### #### #### #### #### #### #### #### ####
+#### #### #### #### #### #### #### #### #### #### #### #### #### #### #### ####
+
+- name: INCLUDE - ./include/vm_pause.yaml
+  ansible.builtin.include_tasks: "./include/vm_pause.yaml"
+  when: proxmox_vm_action == "vm_pause"
+
+- name: INCLUDE - ./include/vm_resume.yaml
+  ansible.builtin.include_tasks: "./include/vm_resume.yaml"
+  when: proxmox_vm_action == "vm_resume"
+
+#### #### #### #### #### #### #### #### #### #### #### #### #### #### #### ####
+#### #### #### #### #### #### #### #### #### #### #### #### #### #### #### ####
+#### #### #### #### #### #### #### #### #### #### #### #### #### #### #### ####
+
+- name: INCLUDE - ./include/snapshot_create.yaml
+  ansible.builtin.include_tasks: "./include/snapshot_create.yaml"
+  when: proxmox_vm_action == "snapshot_create"
+
+- name: INCLUDE - ./include/snapshot_rollback.yaml
+  ansible.builtin.include_tasks: "./include/snapshot_rollback.yaml"
+  when: proxmox_vm_action == "snapshot_rollback"
+
+- name: INCLUDE - ./include/snapshot_delete.yaml
+  ansible.builtin.include_tasks: "./include/snapshot_delete.yaml"
+  when: proxmox_vm_action == "snapshot_delete"
+
+#### #### #### #### #### #### #### #### #### #### #### #### #### #### #### ####
+#### #### #### #### #### #### #### #### #### #### #### #### #### #### #### ####
+#### #### #### #### #### #### #### #### #### #### #### #### #### #### #### ####
+
+- name: INCLUDE - ./include/vm_create.yaml
+  ansible.builtin.include_tasks: "./include/vm_create.yaml"
+  when: proxmox_vm_action == "vm_create"
+
+- name: INCLUDE - ./include/vm_delete.yaml
+  ansible.builtin.include_tasks: "./include/vm_delete.yaml"
+  when: proxmox_vm_action == "vm_delete"
+
+#### #### #### #### #### #### #### #### #### #### #### #### #### #### #### ####
+#### #### #### #### #### #### #### #### #### #### #### #### #### #### #### ####
+#### #### #### #### #### #### #### #### #### #### #### #### #### #### #### ####
+
+- name: INCLUDE - ./include/firewall/dc_enable.yaml
+  ansible.builtin.include_tasks: "./include/firewall/dc_enable.yaml"
+  when: proxmox_vm_action == "firewall_dc_enable"
+
+- name: INCLUDE - ./include/firewall/node_enable.yaml
+  ansible.builtin.include_tasks: "./include/firewall/node_enable.yaml"
+  when: proxmox_vm_action == "firewall_node_enable"
+
+- name: INCLUDE - ./include/firewall/vm_enable.yaml
+  ansible.builtin.include_tasks: "./include/firewall/vm_enable.yaml"
+  when: proxmox_vm_action == "firewall_vm_enable"
+
+#### #### #### #### #### #### #### #### #### #### #### #### #### #### #### ####
+
+- name: INCLUDE - ./include/firewall/vm_default_rules_ssh.yaml
+  ansible.builtin.include_tasks: "./include/firewall/vm_default_rules_ssh.yaml"
+  when: proxmox_vm_action == "firewall_vm_enable"
+
+#### #### #### #### #### #### #### #### #### #### #### #### #### #### #### ####
+#### #### #### #### #### #### #### #### #### #### #### #### #### #### #### ####
+#### #### #### #### #### #### #### #### #### #### #### #### #### #### #### ####
+
+- name: INCLUDE - ./include/vm_list.yaml
+  ansible.builtin.include_tasks: "./include/vm_list.yaml"
+  when: proxmox_vm_action == "vm_list"
