@@ -1,0 +1,16 @@
+---
+####
+
+- name: VM - DELETE
+  uri:
+    url: "https://{{ proxmox_api_host }}/api2/json/nodes/{{ proxmox_node }}/qemu/{{ proxmox_vmid }}"
+    method: DELETE
+    headers:
+      Authorization: "PVEAPIToken={{ proxmox_api_user }}!{{ proxmox_api_token_id }}={{ proxmox_api_token_secret }}"
+    validate_certs: no
+    register: vm_delete_output
+  when: proxmox_vm_action == "vm_delete"
+
+- debug: var=vm_delete_output
+  when: proxmox_vm_action == "vm_delete"
+#

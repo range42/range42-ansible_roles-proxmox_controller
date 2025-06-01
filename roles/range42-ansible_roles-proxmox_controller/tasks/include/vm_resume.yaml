@@ -1,0 +1,38 @@
+---
+- name: VM RESUME
+  uri:
+    url: "https://{{ proxmox_api_host }}/api2/json/nodes/{{ proxmox_node }}/qemu/{{ proxmox_vmid }}/status/resume"
+    method: POST
+    headers:
+      Authorization: "PVEAPIToken={{ proxmox_api_user }}!{{ proxmox_api_token_id }}={{ proxmox_api_token_secret }}"
+    validate_certs: no
+  register: vm_resume_output
+  when: proxmox_vm_action == "vm_resume"
+
+- debug: var=vm_resume_output
+  when: proxmox_vm_action == "vm_resume"
+
+- name: VM RESUME - FETCH STATUS
+  uri:
+    url: "https://{{ proxmox_api_host }}/api2/json/nodes/{{ proxmox_node }}/qemu/{{ proxmox_vmid }}/status/current"
+    method: GET
+    headers:
+      Authorization: "PVEAPIToken={{ proxmox_api_user }}!{{ proxmox_api_token_id }}={{ proxmox_api_token_secret }}"
+    validate_certs: no
+  register: vm_info
+  when: proxmox_vm_action == "vm_resume"
+
+- name: VM RESUME - BUILD JSON
+  set_fact:
+    vm_resume:
+      vm_id_FLAG: "{{ proxmox_vmid }}"
+      vm_name: "{{ vm_info.json.data.name }}"
+      vm_status: "{{ vm_info.json.data.status }}"
+      action: "vm_resume"
+      # raw_info: "{{ vm_info.json }}" # orig json proxmox
+  when: proxmox_vm_action == "vm_resume"
+
+- name: VM RESUME - SHOW JSON
+  debug:
+    var: vm_resume
+  when: proxmox_vm_action == "vm_resume"
