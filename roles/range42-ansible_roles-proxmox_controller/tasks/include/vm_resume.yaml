@@ -25,7 +25,7 @@
 - name: VM RESUME - BUILD JSON
   set_fact:
     vm_resume:
-      vm_id_FLAG: "{{ proxmox_vmid }}"
+      vm_id: "{{ proxmox_vmid }}"
       vm_name: "{{ vm_info.json.data.name }}"
       vm_status: "{{ vm_info.json.data.status }}"
       action: "vm_resume"
