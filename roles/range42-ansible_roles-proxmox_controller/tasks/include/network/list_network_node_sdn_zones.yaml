@@ -1,0 +1,31 @@
+---
+##
+##
+##
+
+- block:
+    ####
+    ####
+
+    - name: NETWORK - LIST SDN NODE ZONES
+      # vars:
+      #   proxmox_network_zone: "localnetwork"
+      uri:
+        url: "https://{{ proxmox_api_host }}/api2/json/nodes/{{ proxmox_node }}/sdn/zones"
+        method: GET
+        headers:
+          Authorization: "PVEAPIToken={{ proxmox_api_user }}!{{ proxmox_api_token_id }}={{ proxmox_api_token_secret }}"
+        validate_certs: no
+      register: proxmox_call_network_list_sdn_zone_int
+
+    ####
+    ####
+
+    - name: RETURN ONLY TASK OUTPUT - proxmox_call_network_list_sdn_zone_int
+      debug:
+        var: proxmox_call_network_list_sdn_zone_int
+
+  ####
+  ####
+
+  when: proxmox_vm_action == "network_list_node_sdn_zones"
