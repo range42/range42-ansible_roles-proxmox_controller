@@ -1,0 +1,29 @@
+---
+##
+##
+##
+
+- block:
+    ####
+    ####
+
+    - name: STORAGE - LIST STORAGE META
+      uri:
+        url: "https://{{ proxmox_api_host }}/api2/json/nodes/{{ proxmox_node }}/storage"
+        method: GET
+        headers:
+          Authorization: "PVEAPIToken={{ proxmox_api_user }}!{{ proxmox_api_token_id }}={{ proxmox_api_token_secret }}"
+        validate_certs: no
+      register: proxmox_call_list_iso_storage
+
+    ####
+    ####
+
+    - name: RETURN ONLY TASK OUTPUT - proxmox_call_list_iso
+      debug:
+        var: proxmox_call_list_iso_storage
+
+  ####
+  ####
+
+  when: proxmox_vm_action == "storage_list"
