@@ -3,56 +3,82 @@
 #### #### #### #### #### #### #### #### #### #### #### #### #### #### #### ####
 #### #### #### #### #### #### #### #### #### #### #### #### #### #### #### ####
 
-- name: INCLUDE - ./include/vm_start.yaml
-  ansible.builtin.include_tasks: "./include/vm_start.yaml"
+- name: INCLUDE - ./include/vm/vm_start.yaml
+  ansible.builtin.include_tasks: "./include/vm/vm_start.yaml"
   when: proxmox_vm_action == "vm_start"
 
-- name: INCLUDE - ./include/vm_stop.yaml
-  ansible.builtin.include_tasks: "./include/vm_stop.yaml"
+- name: INCLUDE - ./include/vm/vm_stop.yaml
+  ansible.builtin.include_tasks: "./include/vm/vm_stop.yaml"
   when: proxmox_vm_action == "vm_stop"
 
-- name: INCLUDE - ./include/vm_stop_force.yaml
-  ansible.builtin.include_tasks: "./include/vm_stop_force.yaml"
+- name: INCLUDE - ./include/vm/vm_stop_force.yaml
+  ansible.builtin.include_tasks: "./include/vm/vm_stop_force.yaml"
   when: proxmox_vm_action == "vm_stop_force"
 
-#### #### #### #### #### #### #### #### #### #### #### #### #### #### #### ####
-#### #### #### #### #### #### #### #### #### #### #### #### #### #### #### ####
-#### #### #### #### #### #### #### #### #### #### #### #### #### #### #### ####
+  #### #### #### #### #### #### #### #### #### #### #### #### #### #### #### ####
 
-- name: INCLUDE - ./include/vm_pause.yaml
-  ansible.builtin.include_tasks: "./include/vm_pause.yaml"
+- name: INCLUDE - ./include/vm/vm_pause.yaml
+  ansible.builtin.include_tasks: "./include/vm/vm_pause.yaml"
   when: proxmox_vm_action == "vm_pause"
 
-- name: INCLUDE - ./include/vm_resume.yaml
-  ansible.builtin.include_tasks: "./include/vm_resume.yaml"
+- name: INCLUDE - ./include/vm/vm_resume.yaml
+  ansible.builtin.include_tasks: "./include/vm/vm_resume.yaml"
   when: proxmox_vm_action == "vm_resume"
 
 #### #### #### #### #### #### #### #### #### #### #### #### #### #### #### ####
+
+- name: INCLUDE - ./include/vm/vm_get_config.yaml
+  ansible.builtin.include_tasks: "./include/vm/vm_get_config.yaml"
+  when: proxmox_vm_action == "vm_get_config"
+
+- name: INCLUDE - ./include/vm/vm_get_config_cdrom.yaml
+  ansible.builtin.include_tasks: "./include/vm/vm_get_config_cdrom.yaml"
+  when: proxmox_vm_action == "vm_get_config_cdrom"
+
+- name: INCLUDE - ./include/vm/vm_get_config_ram.yaml
+  ansible.builtin.include_tasks: "./include/vm/vm_get_config_ram.yaml"
+  when: proxmox_vm_action == "vm_get_config_ram"
+
+- name: INCLUDE - ./include/vm/vm_get_config_cpu.yaml
+  ansible.builtin.include_tasks: "./include/vm/vm_get_config_cpu.yaml"
+  when: proxmox_vm_action == "vm_get_config_cpu"
+
+#### #### #### #### #### #### #### #### #### #### #### #### #### #### #### ####
 #### #### #### #### #### #### #### #### #### #### #### #### #### #### #### ####
 #### #### #### #### #### #### #### #### #### #### #### #### #### #### #### ####
 
-- name: INCLUDE - ./include/snapshot_create.yaml
-  ansible.builtin.include_tasks: "./include/snapshot_create.yaml"
-  when: proxmox_vm_action == "snapshot_create"
+- name: INCLUDE - ./include/snapshot/vm/snapshot_create.yaml
+  ansible.builtin.include_tasks: "./include/snapshot/vm/snapshot_create.yaml"
+  when: proxmox_vm_action == "snapshot_vm_create"
 
-- name: INCLUDE - ./include/snapshot_rollback.yaml
-  ansible.builtin.include_tasks: "./include/snapshot_rollback.yaml"
-  when: proxmox_vm_action == "snapshot_rollback"
+- name: INCLUDE - ./include/snapshot/vm/snapshot_rollback.yaml
+  ansible.builtin.include_tasks: "./include/snapshot/vm/snapshot_rollback.yaml"
+  when: proxmox_vm_action == "snapshot_vm_rollback"
 
-- name: INCLUDE - ./include/snapshot_delete.yaml
-  ansible.builtin.include_tasks: "./include/snapshot_delete.yaml"
-  when: proxmox_vm_action == "snapshot_delete"
+- name: INCLUDE - ./include/snapshot/vm/snapshot_delete.yaml
+  ansible.builtin.include_tasks: "./include/snapshot/vm/snapshot_delete.yaml"
+  when: proxmox_vm_action == "snapshot_vm_delete"
+
+- name: INCLUDE - ./include/snapshot/vm/snapshot_list.yaml
+  ansible.builtin.include_tasks: "./include/snapshot/vm/snapshot_list.yaml"
+  when: proxmox_vm_action == "snapshot_vm_list"
+
+  #### #### #### #### #### #### #### #### #### #### #### #### #### #### #### ####
+
+- name: INCLUDE - ./include/snapshot/lxc/snapshot_list.yaml
+  ansible.builtin.include_tasks: "./include/snapshot/lxc/snapshot_list.yaml"
+  when: proxmox_vm_action == "snapshot_lxc_list"
 
 #### #### #### #### #### #### #### #### #### #### #### #### #### #### #### ####
 #### #### #### #### #### #### #### #### #### #### #### #### #### #### #### ####
 #### #### #### #### #### #### #### #### #### #### #### #### #### #### #### ####
 
-- name: INCLUDE - ./include/vm_create.yaml
-  ansible.builtin.include_tasks: "./include/vm_create.yaml"
+- name: INCLUDE - ./include/vm/vm_create.yaml
+  ansible.builtin.include_tasks: "./include/vm/vm_create.yaml"
   when: proxmox_vm_action == "vm_create"
 
-- name: INCLUDE - ./include/vm_delete.yaml
-  ansible.builtin.include_tasks: "./include/vm_delete.yaml"
+- name: INCLUDE - ./include/vm/vm_delete.yaml
+  ansible.builtin.include_tasks: "./include/vm/vm_delete.yaml"
   when: proxmox_vm_action == "vm_delete"
 
 #### #### #### #### #### #### #### #### #### #### #### #### #### #### #### ####
@@ -81,6 +107,38 @@
 #### #### #### #### #### #### #### #### #### #### #### #### #### #### #### ####
 #### #### #### #### #### #### #### #### #### #### #### #### #### #### #### ####
 
-- name: INCLUDE - ./include/vm_list.yaml
-  ansible.builtin.include_tasks: "./include/vm_list.yaml"
+- name: INCLUDE - ./include/vm/vm_list.yaml
+  ansible.builtin.include_tasks: "./include/vm/vm_list.yaml"
   when: proxmox_vm_action == "vm_list"
+
+#### #### #### #### #### #### #### #### #### #### #### #### #### #### #### ####
+#### #### #### #### #### #### #### #### #### #### #### #### #### #### #### ####
+#### #### #### #### #### #### #### #### #### #### #### #### #### #### #### ####
+
+- name: INCLUDE - ./include/storage/iso_list.yaml
+  ansible.builtin.include_tasks: "./include/storage/iso_list.yaml"
+  when: proxmox_vm_action == "storage_list_iso"
+
+- name: INCLUDE - ./include/storage/storage_list.yaml
+  ansible.builtin.include_tasks: "./include/storage/storage_list.yaml"
+  when: proxmox_vm_action == "storage_list"
+
+- name: INCLUDE - ./include/storage/template_list.yaml
+  ansible.builtin.include_tasks: "./include/storage/template_list.yaml"
+  when: proxmox_vm_action == "storage_list_template"
+
+#### #### #### #### #### #### #### #### #### #### #### #### #### #### #### ####
+#### #### #### #### #### #### #### #### #### #### #### #### #### #### #### ####
+#### #### #### #### #### #### #### #### #### #### #### #### #### #### #### ####
+
+- name: INCLUDE - ./include/network/list_network_vm.yaml
+  ansible.builtin.include_tasks: "./include/network/list_network_vm.yaml"
+  when: proxmox_vm_action == "network_list_interfaces_vm"
+
+- name: INCLUDE - ./include/network/list_network_node.yaml
+  ansible.builtin.include_tasks: "./include/network/list_network_node.yaml"
+  when: proxmox_vm_action == "network_list_interfaces_node"
+
+- name: INCLUDE - ./include/network/list_network_node_sdn_zones.yaml
+  ansible.builtin.include_tasks: "./include/network/list_network_node_sdn_zones.yaml"
+  when: proxmox_vm_action == "network_list_node_sdn_zones"
