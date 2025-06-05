@@ -1,0 +1,41 @@
+---
+##
+##
+##
+
+- block:
+    ####
+    ####
+
+    - name: NETWORK - VM - GET CONFIG RAM
+      vars:
+        proxmox_vmid: 100 # TODO - OVERWRITED_ARGUMENTS
+
+      uri:
+        url: "https://{{ proxmox_api_host }}/api2/json/nodes/{{ proxmox_node }}/qemu/{{ proxmox_vmid }}/config"
+        method: GET
+        headers:
+          Authorization: "PVEAPIToken={{ proxmox_api_user }}!{{ proxmox_api_token_id }}={{ proxmox_api_token_secret }}"
+        validate_certs: no
+      register: proxmox_call_vm_get_config_ram
+
+    ####
+    ####
+
+    # - name: RETURN ONLY TASK OUTPUT - proxmox_call_vm_get_allocated_ram
+    #   debug:
+    #     var: proxmox_call_vm_get_config_ram
+
+    - name: RETURN ONLY TASK OUTPUT - proxmox_call_vm_get_config_ram
+      shell: |
+        echo "{{ proxmox_call_vm_get_config_ram.json.data | 
+          to_nice_yaml }}" |
+          grep -E "(memory:)"
+      register: proxmox_call__shell_pipe__ram_config
+
+    - debug: var=proxmox_call__shell_pipe__ram_config.stdout_lines
+
+  ####
+  ####
+
+  when: proxmox_vm_action == "vm_get_config_ram"
