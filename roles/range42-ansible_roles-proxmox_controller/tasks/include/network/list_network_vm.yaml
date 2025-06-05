@@ -1,0 +1,34 @@
+---
+##
+##
+##
+
+- block:
+    ####
+    ####
+
+    - name: NETWORK - VM - LIST NETWORK INTERFACES
+      vars:
+        proxmox_vmid: 100 # TODO - OVERWRITED_ARGUMENTS
+
+      uri:
+        url: "https://{{ proxmox_api_host }}/api2/json/nodes/{{ proxmox_node }}/qemu/{{ proxmox_vmid }}/config"
+        method: GET
+        headers:
+          Authorization: "PVEAPIToken={{ proxmox_api_user }}!{{ proxmox_api_token_id }}={{ proxmox_api_token_secret }}"
+        validate_certs: no
+      register: proxmox_call_network_vm_list_int
+
+    ####
+    ####
+
+    - name: RETURN ONLY TASK OUTPUT - proxmox_call_network_vm_list_int
+      shell: 'echo "{{ proxmox_call_network_vm_list_int.json.data | to_nice_yaml }}" | grep -E "net[0-9]{1,4}:"'
+      register: proxmox_call__shell_pipe__network_vm_list_int
+
+    - debug: var=proxmox_call__shell_pipe__network_vm_list_int.stdout_lines
+
+  ####
+  ####
+
+  when: proxmox_vm_action == "network_list_interfaces_vm"

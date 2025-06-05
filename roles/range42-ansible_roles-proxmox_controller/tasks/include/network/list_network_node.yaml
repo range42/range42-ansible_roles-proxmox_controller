@@ -1,0 +1,29 @@
+---
+##
+##
+##
+
+- block:
+    ####
+    ####
+
+    - name: NETWORK - NODE - LIST NETWORK INTERFACES
+      uri:
+        url: "https://{{ proxmox_api_host }}/api2/json/nodes/{{ proxmox_node }}/network"
+        method: GET
+        headers:
+          Authorization: "PVEAPIToken={{ proxmox_api_user }}!{{ proxmox_api_token_id }}={{ proxmox_api_token_secret }}"
+        validate_certs: no
+      register: proxmox_call_list_network_int_node
+
+    ####
+    ####
+
+    - name: RETURN ONLY TASK OUTPUT - proxmox_call_list_network_int_node
+      debug:
+        var: proxmox_call_list_network_int_node
+
+  ####
+  ####
+
+  when: proxmox_vm_action == "network_list_interfaces_node"
