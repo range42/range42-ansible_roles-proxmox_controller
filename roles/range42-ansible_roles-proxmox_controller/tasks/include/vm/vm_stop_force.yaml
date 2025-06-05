@@ -1,0 +1,52 @@
+---
+##
+##
+##
+
+- block:
+    ####
+    ####
+
+    - name: VM STOP - FORCE POWER OFF
+      uri:
+        url: "https://{{ proxmox_api_host }}/api2/json/nodes/{{ proxmox_node }}/qemu/{{ proxmox_vmid }}/status/stop"
+        method: POST
+        headers:
+          Authorization: "PVEAPIToken={{ proxmox_api_user }}!{{ proxmox_api_token_id }}={{ proxmox_api_token_secret }}"
+        body_format: form-urlencoded
+        body:
+          timeout: 10
+        validate_certs: no
+
+    ####
+    ####
+
+    - name: VM STOP - FORCE POWER OFF - FETCH STATUS
+      uri:
+        url: "https://{{ proxmox_api_host }}/api2/json/nodes/{{ proxmox_node }}/qemu/{{ proxmox_vmid }}/status/current"
+        method: GET
+        headers:
+          Authorization: "PVEAPIToken={{ proxmox_api_user }}!{{ proxmox_api_token_id }}={{ proxmox_api_token_secret }}"
+        validate_certs: no
+      register: vm_info
+
+    ####
+    ####
+
+    - name: VM STOP - FORCE POWER OFF - BUILD JSON
+      set_fact:
+        vm_stop_force:
+          vm_id: "{{ proxmox_vmid }}"
+          vm_name: "{{ vm_info.json.data.name }}"
+          vm_status: "{{ vm_info.json.data.status }}"
+          action: "vm_stop_force"
+          # raw_info: "{{ vm_info.json }}" # orig json proxmox
+
+    - name: VM STOP - FORCE POWER OFF - SHOW JSON
+      debug:
+        var: vm_stop_force
+
+  ####
+  ####
+
+  when: proxmox_vm_action == "vm_stop_force"

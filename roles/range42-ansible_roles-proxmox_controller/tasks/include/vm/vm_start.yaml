@@ -1,0 +1,45 @@
+---
+##
+##
+##
+
+- block:
+    ####
+    ####
+
+    - name: VM START
+      uri:
+        url: "https://{{ proxmox_api_host }}/api2/json/nodes/{{ proxmox_node }}/qemu/{{ proxmox_vmid }}/status/start"
+        method: POST
+        headers:
+          Authorization: "PVEAPIToken={{ proxmox_api_user }}!{{ proxmox_api_token_id }}={{ proxmox_api_token_secret }}"
+        validate_certs: no
+        return_content: true
+      register: proxmox_call
+
+    - name: VM START - FETCH STATUS
+      uri:
+        url: "https://{{ proxmox_api_host }}/api2/json/nodes/{{ proxmox_node }}/qemu/{{ proxmox_vmid }}/status/current"
+        method: GET
+        headers:
+          Authorization: "PVEAPIToken={{ proxmox_api_user }}!{{ proxmox_api_token_id }}={{ proxmox_api_token_secret }}"
+        validate_certs: no
+      register: vm_info
+
+    - name: VM START - BUILD JSON
+      set_fact:
+        vm_start:
+          vm_id: "{{ proxmox_vmid }}"
+          vm_name: "{{ vm_info.json.data.name }}"
+          vm_status: "{{ vm_info.json.data.status }}"
+          action: "vm_start"
+          # raw_info: "{{ vm_info.json }}" # orig json proxmox
+
+    - name: VM START - SHOW JSON
+      debug:
+        var: vm_start
+
+  ####
+  ####
+
+  when: proxmox_vm_action == "vm_start"
