@@ -1,30 +1,42 @@
 ---
-####
+##
+##
+##
 
-- name: VM LEVEL - FIREWALL RULE - ALLOW SSH - 22/TCP
-  uri:
-    url: "https://{{ proxmox_api_host }}/api2/json/nodes/{{ proxmox_node }}/qemu/{{ proxmox_vmid }}/firewall/rules"
-    method: POST
-    headers:
-      Authorization: "PVEAPIToken={{ proxmox_api_user }}!{{ proxmox_api_token_id }}={{ proxmox_api_token_secret }}"
-    body_format: json
-    body:
-      type: "in"
-      action: "ACCEPT"
-      proto: "tcp"
-      dport: "22"
-    validate_certs: no
-  when: proxmox_vm_action == "firewall_vm_enable"
+- block:
+    ####
+    ####
 
-- name: VM LEVEL - FIREWALL RULE - DROP ALL - IN
-  uri:
-    url: "https://{{ proxmox_api_host }}/api2/json/nodes/{{ proxmox_node }}/qemu/{{ proxmox_vmid }}/firewall/rules"
-    method: POST
-    headers:
-      Authorization: "PVEAPIToken={{ proxmox_api_user }}!{{ proxmox_api_token_id }}={{ proxmox_api_token_secret }}"
-    body_format: json
-    body:
-      type: "in"
-      action: "DROP"
-    validate_certs: no
+    - name: VM LEVEL - FIREWALL RULE - ALLOW SSH - 22/TCP
+      uri:
+        url: "https://{{ proxmox_api_host }}/api2/json/nodes/{{ proxmox_node }}/qemu/{{ proxmox_vmid }}/firewall/rules"
+        method: POST
+        headers:
+          Authorization: "PVEAPIToken={{ proxmox_api_user }}!{{ proxmox_api_token_id }}={{ proxmox_api_token_secret }}"
+        body_format: json
+        body:
+          type: "in"
+          action: "ACCEPT"
+          proto: "tcp"
+          dport: "22"
+        validate_certs: no
+
+    ####
+    ####
+
+    - name: VM LEVEL - FIREWALL RULE - DROP ALL - IN
+      uri:
+        url: "https://{{ proxmox_api_host }}/api2/json/nodes/{{ proxmox_node }}/qemu/{{ proxmox_vmid }}/firewall/rules"
+        method: POST
+        headers:
+          Authorization: "PVEAPIToken={{ proxmox_api_user }}!{{ proxmox_api_token_id }}={{ proxmox_api_token_secret }}"
+        body_format: json
+        body:
+          type: "in"
+          action: "DROP"
+        validate_certs: no
+
+  ####
+  ####
+
   when: proxmox_vm_action == "firewall_vm_enable"
