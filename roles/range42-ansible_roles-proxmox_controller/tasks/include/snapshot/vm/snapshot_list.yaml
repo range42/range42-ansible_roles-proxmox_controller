@@ -1,0 +1,28 @@
+---
+##
+##
+##
+
+- block:
+    ####
+    ####
+
+    - name: SNAPSHOT VM - LIST SNAPSHOT
+      uri:
+        url: "https://{{ proxmox_api_host }}/api2/json/nodes/{{ proxmox_node }}/qemu/{{ proxmox_vmid }}/snapshot"
+        method: GET
+
+        headers:
+          Authorization: "PVEAPIToken={{ proxmox_api_user }}!{{ proxmox_api_token_id }}={{ proxmox_api_token_secret }}"
+        validate_certs: no
+      register: snapshot_list_output
+
+    ####
+    ####
+
+    - debug: var=snapshot_list_output
+
+  ####
+  ####
+
+  when: proxmox_vm_action == "snapshot_vm_list"

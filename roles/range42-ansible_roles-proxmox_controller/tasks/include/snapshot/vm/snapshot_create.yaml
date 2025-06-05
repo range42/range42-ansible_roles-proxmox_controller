@@ -1,0 +1,28 @@
+---
+##
+##
+##
+
+- block:
+    ####
+    ####
+
+    - name: SNAPSHOT VM - CREATE
+      uri:
+        url: "https://{{ proxmox_api_host }}/api2/json/nodes/{{ proxmox_node }}/qemu/{{ proxmox_vmid }}/snapshot"
+        method: POST
+        headers:
+          Authorization: "PVEAPIToken={{ proxmox_api_user }}!{{ proxmox_api_token_id }}={{ proxmox_api_token_secret }}"
+        body_format: json
+        body:
+          snapname: "{{ proxmox_snapshot_name }}"
+          description: "Snapshot created by Ansible"
+        validate_certs: no
+      register: snapshot_create_output
+
+    - debug: var=snapshot_create_output
+
+  ####
+  ####
+
+  when: proxmox_vm_action == "snapshot_vm_create"
