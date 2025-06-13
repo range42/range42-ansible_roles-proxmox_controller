@@ -15,14 +15,44 @@
         headers:
           Authorization: "PVEAPIToken={{ proxmox_api_user }}!{{ proxmox_api_token_id }}={{ proxmox_api_token_secret }}"
         validate_certs: no
-      register: snapshot_list_output
+      register: proxmox_call
 
     ####
     ####
 
-    - debug: var=snapshot_list_output
+    - name: SNAPSHOT VM - LIST SNAPSHOT - proxmox_call
+      debug:
+        var: proxmox_call
+
+    - name: NAPSHOT VM - LIST SNAPSHOT - BUILD JSON
+      set_fact:
+        snapshot_vm_list: >-
+          {{ (snapshot_vm_list | default([])) +
+            [{
+              'action': "snapshot_vm_list",
+              'source': "proxmox",
+              'proxmox_node': proxmox_node,
+              
+              'vm_snapshot_description':  (item.description | default("?")),
+              'vm_snapshot_name':   (item.name  | default("?")),
+              'vm_snapshot_parent':   (item.parent  | default("?")),
+              'vm_snapshot_time':   (item.snaptime  | default(-1)),
+              'vm_snapshot_sha1':   (item.digest  | default("?")),
+              'vm_snapshot_is_poweroff':   (item.state  | default(-1)),
+              'vm_snapshot_is_running':   (item.runing  | default(-1)),
+            }]
+          }}
+      loop: "{{ proxmox_call.json.data }}"
+
+    - name: NAPSHOT VM - LIST SNAPSHOT - PRINT JSON
+      debug:
+        var: snapshot_vm_list
 
   ####
+
+  # vars:
+  #   proxmox_storage: "local" # TODO - OVERWRITED_ARGUMENTS
+
   ####
 
   when: proxmox_vm_action == "snapshot_vm_list"
