@@ -19,9 +19,9 @@
     ####
     ####
 
-    - name: Build formatted vm_list in one go
+    - name: VM LIST - BUILD JSON
       set_fact:
-        vm_list: >- # note following include the init var.
+        vm_list: >- # 
           {{ (vm_list | default([])) +
             [ {
               'vm_name':    (item.name    | default('?')),
@@ -42,7 +42,6 @@
               }
             } ] }}
       loop: "{{ proxmox_call.json.data }}"
-
 
     - name: RETURN ONLY TASK OUTPUT - vm_list
       debug:

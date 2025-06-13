@@ -7,7 +7,7 @@
     ####
     ####
 
-    - name: NETWORK - VM - GET CONFIG RAM
+    - name: VM - GET CONFIG RAM
       vars:
         proxmox_vmid: 100 # TODO - OVERWRITED_ARGUMENTS
 
@@ -17,23 +17,32 @@
         headers:
           Authorization: "PVEAPIToken={{ proxmox_api_user }}!{{ proxmox_api_token_id }}={{ proxmox_api_token_secret }}"
         validate_certs: no
-      register: proxmox_call_vm_get_config_ram
+      register: proxmox_call
 
     ####
     ####
 
-    # - name: RETURN ONLY TASK OUTPUT - proxmox_call_vm_get_allocated_ram
-    #   debug:
-    #     var: proxmox_call_vm_get_config_ram
+    - name: VM - GET CONFIG RAM - print proxmox_call
+      debug:
+        var: proxmox_call
 
-    - name: RETURN ONLY TASK OUTPUT - proxmox_call_vm_get_config_ram
-      shell: |
-        echo "{{ proxmox_call_vm_get_config_ram.json.data | 
-          to_nice_yaml }}" |
-          grep -E "(memory:)"
-      register: proxmox_call__shell_pipe__ram_config
+    - name: VM - GET CONFIG RAM - BUILD JSON
+      set_fact:
+        vm_get_config_ram: >-
+          {{ {
+              'action' : "vm_get_config_ram", 
+              'source' : "proxmox", 
+              'proxmox_node': proxmox_node,
 
-    - debug: var=proxmox_call__shell_pipe__ram_config.stdout_lines
+              'vm_id'  : proxmox_vmid,
+              'vm_ram_allocated':  "{{ proxmox_call.json.data.memory | default(0) }}",
+            }
+            | to_json
+          }}
+
+    - name: VM - GET CONFIG RAM - PRINT JSON
+      debug:
+        var: vm_get_config_ram
 
   ####
   ####
