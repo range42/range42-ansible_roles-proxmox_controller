@@ -8,8 +8,6 @@
     ####
 
     - name: STORAGE - LIST ISO
-      vars:
-        proxmox_storage: "local" # TODO - OVERWRITED_ARGUMENTS
       uri:
         url: "https://{{ proxmox_api_host }}/api2/json/nodes/{{ proxmox_node }}/storage/{{ proxmox_storage }}/content?content=iso"
         # url: "https://{{ proxmox_api_host }}/api2/json/nodes/{{ proxmox_node }}/storage/local/content?content=iso"
@@ -17,16 +15,39 @@
         headers:
           Authorization: "PVEAPIToken={{ proxmox_api_user }}!{{ proxmox_api_token_id }}={{ proxmox_api_token_secret }}"
         validate_certs: no
-      register: proxmox_call_list_iso
+      register: proxmox_call
 
     ####
     ####
 
-    - name: RETURN ONLY TASK OUTPUT - proxmox_call_list_iso
+    - name: STORAGE - LIST ISO - BUILD JSON
+      set_fact:
+        storage_list_iso: >-
+          {{ (storage_list_iso | default([])) +
+            [{
+              'action'      : "storage_list_iso",
+              'source'      : "proxmox",
+              'proxmox_node': proxmox_node,
+              'storage_name': proxmox_storage,
+
+              'iso_content' : (item.content | default("?")),
+              'iso_format'  : (item.format  | default("?")),
+              'iso_ctime'   : (item.ctime   | default(-1)),
+              'iso_size'    : (item.size    | default(-1)),
+              'iso_vol_id'  : (item.volid  | default("?")),
+            }]
+          }}
+      loop: "{{ proxmox_call.json.data }}"
+
+    - name: STORAGE - LIST ISO - PRINT JSON
       debug:
-        var: proxmox_call_list_iso
+        var: storage_list_iso
 
   ####
+
+  vars:
+    proxmox_storage: "local" # TODO - OVERWRITED_ARGUMENTS
+
   ####
 
   when: proxmox_vm_action == "storage_list_iso"

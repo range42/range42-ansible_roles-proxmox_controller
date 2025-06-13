@@ -8,8 +8,8 @@
     ####
 
     - name: STORAGE - LIST TEMPLATE
-      vars:
-        proxmox_storage: "local" # TODO - OVERWRITED_ARGUMENTS
+      # vars:
+      #   proxmox_storage: "local" # TODO - OVERWRITED_ARGUMENTS
       uri:
         # url: "https://{{ proxmox_api_host }}/api2/json/nodes/{{ proxmox_node }}/storage/local/content?content=vztmpl"
         url: "https://{{ proxmox_api_host }}/api2/json/nodes/{{ proxmox_node }}/storage/{{ proxmox_storage }}/content?content=vztmpl"
@@ -17,16 +17,46 @@
         headers:
           Authorization: "PVEAPIToken={{ proxmox_api_user }}!{{ proxmox_api_token_id }}={{ proxmox_api_token_secret }}"
         validate_certs: no
-      register: proxmox_call_list_ct_template
+      register: proxmox_call
 
     ####
     ####
 
-    - name: RETURN ONLY TASK OUTPUT - proxmox_call_list_iso
+    - name: RETURN ONLY TASK OUTPUT - proxmox_call
       debug:
-        var: proxmox_call_list_ct_template
+        var: proxmox_call
+
+    ####
+    ####
+
+    - name: STORAGE - LIST TEMPLATE - BUILD JSON
+      set_fact:
+        storage_list_template: >-
+          {{ (storage_list_template | default([])) +
+            [{
+              'action'      : "storage_list_template",
+              'source'      : "proxmox",
+              'proxmox_node': proxmox_node,
+              'storage_name': proxmox_storage,
+
+              'template_content': (item.content | default("?")),
+              'template_format' : (item.format  | default("?")),
+              'template_ctime'  : (item.ctime   | default(-1)),
+              'template_size'   : (item.size    | default(-1)),
+              'template_vol_id' : (item.volid   | default("?")),
+            }]
+          }}
+      loop: "{{ proxmox_call.json.data }}"
+
+    - name: STORAGE - LIST TEMPLATE - PRINT JSON
+      debug:
+        var: storage_list_template
 
   ####
+
+  vars:
+    proxmox_storage: "local" # TODO - OVERWRITED_ARGUMENTS
+
   ####
 
   when: proxmox_vm_action == "storage_list_template"
