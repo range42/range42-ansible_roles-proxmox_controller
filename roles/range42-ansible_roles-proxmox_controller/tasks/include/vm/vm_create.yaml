@@ -15,6 +15,10 @@
           Authorization: "PVEAPIToken={{ proxmox_api_user }}!{{ proxmox_api_token_id }}={{ proxmox_api_token_secret }}"
         body_format: form-urlencoded
         body:
+          action: "vm_create"
+          source: "proxmox"
+          proxmox_node: "{{ proxmox_node }}"
+          #
           vmid: "{{ proxmox_new_vm.vmid }}"
           name: "{{ proxmox_new_vm.name }}"
           cpu: "{{ proxmox_new_vm.cpu }}"

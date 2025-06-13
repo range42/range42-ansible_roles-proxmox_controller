@@ -28,7 +28,7 @@
         headers:
           Authorization: "PVEAPIToken={{ proxmox_api_user }}!{{ proxmox_api_token_id }}={{ proxmox_api_token_secret }}"
         validate_certs: no
-      register: vm_info
+      register: proxmox_call
 
     ####
     ####
@@ -36,11 +36,14 @@
     - name: VM STOP - FORCE POWER OFF - BUILD JSON
       set_fact:
         vm_stop_force:
-          vm_id: "{{ proxmox_vmid }}"
-          vm_name: "{{ vm_info.json.data.name }}"
-          vm_status: "{{ vm_info.json.data.status }}"
           action: "vm_stop_force"
-          # raw_info: "{{ vm_info.json }}" # orig json proxmox
+          source: "proxmox"
+          proxmox_node: "{{ proxmox_node }}"
+
+          vm_id: "{{ proxmox_vmid }}"
+          vm_name: "{{ proxmox_call.json.data.name }}"
+          vm_status: "{{ proxmox_call.json.data.status }}"
+          # raw_info: "{{ proxmox_call.json }}" # orig json proxmox
 
     - name: VM STOP - FORCE POWER OFF - SHOW JSON
       debug:

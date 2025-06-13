@@ -7,7 +7,7 @@
     ####
     ####
 
-    - name: NETWORK - VM - GET CONFIG CPU
+    - name: VM - GET CONFIG CPU
       vars:
         proxmox_vmid: 100 # TODO - OVERWRITED_ARGUMENTS
 
@@ -17,23 +17,33 @@
         headers:
           Authorization: "PVEAPIToken={{ proxmox_api_user }}!{{ proxmox_api_token_id }}={{ proxmox_api_token_secret }}"
         validate_certs: no
-      register: proxmox_call_vm_get_config_cpu
+      register: proxmox_call
 
     ####
     ####
+    - name: VM - print proxmox_call
+      debug:
+        var: proxmox_call
 
-    # - name: RETURN ONLY TASK OUTPUT - proxmox_call_vm_get_allocated_cpu
-    #   debug:
-    #     var: proxmox_call_vm_get_config_cpu
+    - name: VM - GET CONFIG CPU - BUILD JSON
+      set_fact:
+        vm_get_config_cpu: >-
+          {{ {
+              'action' : "vm_get_config_ram", 
+              'source' : "proxmox", 
+              'proxmox_node': proxmox_node,
 
-    - name: RETURN ONLY TASK OUTPUT - proxmox_call_network_vm_list_int
-      shell: |
-        echo "{{ proxmox_call_vm_get_config_cpu.json.data | 
-          to_nice_yaml }}" |
-          grep -E "(cores:|sockets:)"
-      register: proxmox_call__shell_pipe__cpu_config
+              'vm_id'  : proxmox_vmid,
+              'vm_arch'   : "{{ proxmox_call.json.data.cpu | default(0) }}",
+              'vm_cores'  :  "{{ proxmox_call.json.data.cores | default(0) }}",
+              'vm_sockets':  "{{ proxmox_call.json.data.sockets | default(0) }}",
+            }
+            | to_json
+          }}
 
-    - debug: var=proxmox_call__shell_pipe__cpu_config.stdout_lines
+    - name: VM - GET CONFIG CPU - PRINT JSON
+      debug:
+        var: vm_get_config_cpu
 
   ####
   ####

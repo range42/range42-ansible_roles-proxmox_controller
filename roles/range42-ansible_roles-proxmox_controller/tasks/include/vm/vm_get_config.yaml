@@ -7,7 +7,7 @@
     ####
     ####
 
-    - name: NETWORK - VM - GET CONFIG
+    - name: GET CONFIG
       vars:
         proxmox_vmid: 100 # TODO - OVERWRITED_ARGUMENTS
 
@@ -17,14 +17,60 @@
         headers:
           Authorization: "PVEAPIToken={{ proxmox_api_user }}!{{ proxmox_api_token_id }}={{ proxmox_api_token_secret }}"
         validate_certs: no
-      register: proxmox_call_vm_get_config
+      register: proxmox_call
 
     ####
     ####
 
-    - name: RETURN ONLY TASK OUTPUT - proxmox_call_vm_get_config
+    - name: VM - print proxmox_call
       debug:
-        var: proxmox_call_vm_get_config
+        var: proxmox_call
+
+    - name: VM - GET CONFIG  - BUILD JSON
+      set_fact:
+        vm_get_config:
+          action: "vm_get_config"
+          source: "proxmox"
+          proxmox_node: "{{ proxmox_node }}"
+          #
+          vm_id: "{{ proxmox_vmid }}"
+
+          raw_data: "{{ proxmox_call.json }}"
+
+    #
+    # hmm todo later if possible.
+    #
+
+    # - name: VM - GET CONFIG  - BUILD JSON
+    #   set_fact:
+    #     vm_get_config: >-
+    #       {{ (vm_config_structured|default({}))
+    #         | combine({
+    #             item.key:
+    #               (
+    #                 (item.value is string and item.value is match('^[0-9]+$'))
+    #                   and (item.value | int)
+    #
+    #                 or ((item.value is string and '=' in item.value)
+    #                   and (
+    #                     item.value
+    #                     | regex_replace(',','\\n')
+    #                     | regex_replace('=',': ')
+    #                     | from_yaml
+    #                   )
+    #                 )
+    #
+    #                 or item.value
+    #               )
+    #           })
+    #       }}
+    #   loop: "{{ proxmox_call.json.data | dict2items }}"
+    #   loop_control:
+    #     label: "{{ item.key }}"
+
+    - name: VM - GET CONFIG - PRINT JSON
+      debug:
+        var: vm_get_config
 
   ####
   ####
