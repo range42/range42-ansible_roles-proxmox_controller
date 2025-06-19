@@ -18,8 +18,12 @@
 
     - debug: var=vm_delete_output
 
-  ####
-  ####
+    ####
+    ####
+
+    - name: VM DELETE - PRINT proxmox_call
+      debug:
+        var: proxmox_call
 
   when: proxmox_vm_action == "vm_delete"
 #

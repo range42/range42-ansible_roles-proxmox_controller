@@ -7,12 +7,12 @@
     ####
     ####
 
-    - name: VM - GET CONFIG RAM
+    - name: VM - GET CONFIG - RAM
       vars:
         proxmox_vmid: 100 # TODO - OVERWRITED_ARGUMENTS
 
       uri:
-        url: "https://{{ proxmox_api_host }}/api2/json/nodes/{{ proxmox_node }}/qemu/{{ proxmox_vmid }}/config"
+        url: "https://{{ proxmox_api_host }}/api2/json/nodes/{{ proxmox_node }}/qemu/{{ vm_id }}/config"
         method: GET
         headers:
           Authorization: "PVEAPIToken={{ proxmox_api_user }}!{{ proxmox_api_token_id }}={{ proxmox_api_token_secret }}"
@@ -22,11 +22,11 @@
     ####
     ####
 
-    - name: VM - GET CONFIG RAM - print proxmox_call
+    - name: VM - GET CONFIG - RAM - PRINT proxmox_call
       debug:
         var: proxmox_call
 
-    - name: VM - GET CONFIG RAM - BUILD JSON
+    - name: VM - GET CONFIG - RAM - BUILD JSON
       set_fact:
         vm_get_config_ram: >-
           {{ {
@@ -34,13 +34,13 @@
               'source' : "proxmox", 
               'proxmox_node': proxmox_node,
 
-              'vm_id'  : proxmox_vmid,
+              'vm_id'  : vm_id,
               'vm_ram_allocated':  "{{ proxmox_call.json.data.memory | default(0) }}",
             }
             | to_json
           }}
 
-    - name: VM - GET CONFIG RAM - PRINT JSON
+    - name: VM - GET CONFIG -  RAM - PRINT JSON
       debug:
         var: vm_get_config_ram
 

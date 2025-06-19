@@ -17,9 +17,11 @@
         body:
           enable: 1
         validate_certs: no
-      register: firewall_dc_output
+      register: proxmox_call
 
-    - debug: var=firewall_dc_output
+    - name: PRINT proxmox_call
+      debug:
+        var: proxmox_call
 
   ####
   ####

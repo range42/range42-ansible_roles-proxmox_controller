@@ -14,12 +14,14 @@
         headers:
           Authorization: "PVEAPIToken={{ proxmox_api_user }}!{{ proxmox_api_token_id }}={{ proxmox_api_token_secret }}"
         validate_certs: no
-      register: snapshot_rollback_output
+      register: proxmox_call
 
     ####
     ####
 
-    - debug: var=snapshot_rollback_output
+    - name: SNAPSHOT VM - PRINT - proxmox_call
+      debug:
+        var: proxmox_call
 
   ####
   ####

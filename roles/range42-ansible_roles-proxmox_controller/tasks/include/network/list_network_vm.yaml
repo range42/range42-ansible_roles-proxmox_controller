@@ -8,27 +8,58 @@
     ####
 
     - name: NETWORK - VM - LIST NETWORK INTERFACES
-      vars:
-        proxmox_vmid: 100 # TODO - OVERWRITED_ARGUMENTS
-
       uri:
-        url: "https://{{ proxmox_api_host }}/api2/json/nodes/{{ proxmox_node }}/qemu/{{ proxmox_vmid }}/config"
+        url: "https://{{ proxmox_api_host }}/api2/json/nodes/{{ proxmox_node }}/qemu/{{ vm_id }}/config"
         method: GET
         headers:
           Authorization: "PVEAPIToken={{ proxmox_api_user }}!{{ proxmox_api_token_id }}={{ proxmox_api_token_secret }}"
         validate_certs: no
-      register: proxmox_call_network_vm_list_int
+      register: proxmox_call
 
     ####
     ####
 
-    - name: RETURN ONLY TASK OUTPUT - proxmox_call_network_vm_list_int
-      shell: 'echo "{{ proxmox_call_network_vm_list_int.json.data | to_nice_yaml }}" | grep -E "net[0-9]{1,4}:"'
-      register: proxmox_call__shell_pipe__network_vm_list_int
+    - name: NETWORK - VM - LIST NETWORK INTERFACES - proxmox_call
+      debug:
+        var: proxmox_call
 
-    - debug: var=proxmox_call__shell_pipe__network_vm_list_int.stdout_lines
+    - name: NETWORK - VM - LIST NETWORK INTERFACES - BUILD JSON
+      set_fact:
+        network_list_interfaces_vm: >-
+          {{ (network_list_interfaces_vm | default([])) +
+            [ {
+                'action': "network_list_interfaces_vm",
+                'source': "proxmox",
+                'proxmox_node': proxmox_node,
+                'vm_id': vm_id,
+
+                'vm_network_device'  : item.key,
+                'vm_network_type'    : item.value.split(',')[0].split('=',1)[0],
+                'vm_network_mac'     : item.value.split(',')[0].split('=',1)[1],
+                'vm_network_bridge'  : item.value.split(',')[1].split('=',1)[1],
+                'vm_network_firewall': (item.value.split(',')[2].split('=',1)[1] | int)
+              } ]
+          }}
+      loop: "{{ proxmox_call.json.data | dict2items }}"
+      loop_control:
+        label: "{{ item.key }}"
+      when: item.key is match('^net[0-9]+$')
+
+    - name: SNAPSHOT VM - LIST SNAPSHOT - PRINT JSON
+      debug:
+        var: network_list_interfaces_vm
+
+  when:
+    proxmox_vm_action == "network_list_interfaces_vm"
+
+    # - name: RETURN ONLY TASK OUTPUT - proxmox_call_network_vm_list_int
+    #   shell: 'echo "{{ proxmox_call_network_vm_list_int.json.data | to_nice_yaml }}" | grep -E "net[0-9]{1,4}:"'
+    #   register: proxmox_call__shell_pipe__network_vm_list_int
+
+    # - debug: var=proxmox_call__shell_pipe__network_vm_list_int.stdout_lines
 
   ####
   ####
 
-  when: proxmox_vm_action == "network_list_interfaces_vm"
+  # vars:
+  #   proxmox_vmid: 100 # TODO - OVERWRITED_ARGUMENTS

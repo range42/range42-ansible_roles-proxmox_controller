@@ -14,16 +14,84 @@
         headers:
           Authorization: "PVEAPIToken={{ proxmox_api_user }}!{{ proxmox_api_token_id }}={{ proxmox_api_token_secret }}"
         validate_certs: no
-      register: proxmox_call_list_network_int_node
+      register: proxmox_call
 
     ####
     ####
 
-    - name: RETURN ONLY TASK OUTPUT - proxmox_call_list_network_int_node
+    - name:  NETWORK - NODE - LIST NETWORK INTERFACES - proxmox_call_list_network_int_node
       debug:
-        var: proxmox_call_list_network_int_node
+        var: proxmox_call
 
-  ####
-  ####
+    ####
+    ####
+
+    - name: NETWORK - NODE -  BUILD JSON WITH INTERFACES
+      set_fact:
+        network_list_interfaces_node: >-
+          {%- set out = [] -%}
+          {%- for item in proxmox_call.json.data -%}
+          {%-   set _ = out.append({
+                'action':                "network_list_interfaces_node",
+                'source':                "proxmox",
+                'proxmox_node':          proxmox_node,
+
+                'iface':                 item.iface,
+                'iface_active':          (item.active     if (item.active is defined)     else omit),
+                'iface_exists':          (item.exists     if (item.exists is defined)     else omit),
+                'iface_type':            (item.iface_type if (item.iface_type is defined) else omit),
+                'iface_autostart':       (item.autostart  if (item.autostart is defined)  else omit),
+                'iface_priority':        (item.priority   if (item.priority is defined)   else omit),
+
+                'iface_bridge_fd':       (item.bridge_fd    if (item.bridge_fd is defined)    else omit),
+                'iface_bridge_ports':    (item.bridge_ports if (item.bridge_ports is defined) else omit),
+                'iface_bridge_stp':      (item.bridge_stp   if (item.bridge_stp is defined)   else omit),
+
+
+                'ip_settings_method':    (item.method    if (item.method is defined)    else omit),
+                'ip_settings_method6':   (item.method6   if (item.method6 is defined)   else omit),
+                'ip_settings_address':   (item.address   if (item.address is defined)   else omit),
+                'ip_settings_cidr':      (item.cidr      if (item.cidr is defined)      else omit),
+                'ip_settings_gateway':   (item.gateway   if (item.gateway is defined)   else omit),
+                'ip_settings_netmask':   (item.netmask   if (item.netmask is defined)   else omit)
+              }) -%}
+          {%- endfor -%}
+          {{ out }}
+
+      when: proxmox_vm_action == "network_list_interfaces_node"
+
+    # - name: NETWORK - BUILD JSON WITH INTERFACES
+    #   set_fact:
+    #     network_list_interfaces_node: >-
+    #       {{ (network_list_interfaces_node | default([])) + [
+    #         {
+    #           'action':                 "network_list_interfaces_node",
+    #           'source':                 "proxmox",
+    #           'proxmox_node':           proxmox_node,
+
+    #           'iface':                  item.get('iface'  ),
+    #           'iface_active':           item.get('active'   ),
+    #           'iface_exists':           item.get('exists'),
+    #           'iface_type':             item.get('type'      ),
+    #           'iface_autostart':        item.get('autostart'   ),
+    #           'iface_bridge_fd':        item.get('bridge_fd'   ),
+    #           'iface_bridge_ports':     item.get('bridge_ports'   ),
+    #           'iface_bridge_stp':       item.get('bridge_stp'   ),
+    #           'iface_priority':         item.get('priority'),
+    #           'ip_settings_method':     item.get('method'   ),
+    #           'ip_settings_method6':    item.get('method6'   ),
+    #           'ip_settings_address':    item.get('address'   ),
+    #           'ip_settings_cidr':       item.get('cidr'   ),
+    #           'ip_settings_gateway':    item.get('gateway'   ),
+    #           'ip_settings_netmask':    item.get('netmask'   ),
+    #         }
+    #       ] }}  dict2items  | rejectattr('value','equalto',None)
+    #   loop: "{{ proxmox_call.json.data }}"
+    #   loop_control:
+    #     label: "{{ item.iface }}"
+
+    - name: SNAPSHOT VM - LIST SNAPSHOT - PRINT JSON
+      debug:
+        var: network_list_interfaces_node
 
   when: proxmox_vm_action == "network_list_interfaces_node"

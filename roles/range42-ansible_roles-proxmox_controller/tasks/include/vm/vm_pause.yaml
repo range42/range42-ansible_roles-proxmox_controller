@@ -9,21 +9,25 @@
 
     - name: VM PAUSE
       uri:
-        url: "https://{{ proxmox_api_host }}/api2/json/nodes/{{ proxmox_node }}/qemu/{{ proxmox_vmid }}/status/suspend"
+        url: "https://{{ proxmox_api_host }}/api2/json/nodes/{{ proxmox_node }}/qemu/{{ vm_id }}/status/suspend"
         method: POST
         headers:
           Authorization: "PVEAPIToken={{ proxmox_api_user }}!{{ proxmox_api_token_id }}={{ proxmox_api_token_secret }}"
         validate_certs: no
       register: vm_pause_output
 
-    - debug: var=vm_pause_output
+    # - debug: var=vm_pause_output
+
+    - name: VM PAUSE - PRINT vm_pause_output
+      debug:
+        var: vm_pause_output
 
     ####
     ####
 
     - name: VM PAUSE - FETCH STATUS
       uri:
-        url: "https://{{ proxmox_api_host }}/api2/json/nodes/{{ proxmox_node }}/qemu/{{ proxmox_vmid }}/status/current"
+        url: "https://{{ proxmox_api_host }}/api2/json/nodes/{{ proxmox_node }}/qemu/{{ vm_id }}/status/current"
         method: GET
         headers:
           Authorization: "PVEAPIToken={{ proxmox_api_user }}!{{ proxmox_api_token_id }}={{ proxmox_api_token_secret }}"
@@ -33,6 +37,10 @@
     ####
     ####
 
+    - name: VM PAUSE - PRINT proxmox_call
+      debug:
+        var: proxmox_call
+
     - name: VM PAUSE - BUILD JSON
       set_fact:
         vm_pause:
@@ -40,12 +48,12 @@
           source: "proxmox"
           proxmox_node: "{{ proxmox_node }}"
           #
-          vm_id: "{{ proxmox_vmid }}"
+          vm_id: "{{ vm_id }}"
           vm_name: "{{ proxmox_call.json.data.name }}"
           vm_status: "{{ proxmox_call.json.data.status }}"
           # raw_info: "{{ proxmox_call.json }}" # orig json proxmox
 
-    - name: VM STOP - SHOW JSON
+    - name: VM STOP - PRINT JSON
       debug:
         var: vm_pause
 

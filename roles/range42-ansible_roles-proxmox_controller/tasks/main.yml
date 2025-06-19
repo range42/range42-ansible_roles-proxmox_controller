@@ -43,6 +43,10 @@
   ansible.builtin.include_tasks: "./include/vm/vm_get_config_cpu.yaml"
   when: proxmox_vm_action == "vm_get_config_cpu"
 
+- name: INCLUDE - ./include/vm/vm_list_usage.yaml
+  ansible.builtin.include_tasks: "./include/vm/vm_list_usage.yaml"
+  when: proxmox_vm_action == "vm_list_usage"
+
 #### #### #### #### #### #### #### #### #### #### #### #### #### #### #### ####
 #### #### #### #### #### #### #### #### #### #### #### #### #### #### #### ####
 #### #### #### #### #### #### #### #### #### #### #### #### #### #### #### ####

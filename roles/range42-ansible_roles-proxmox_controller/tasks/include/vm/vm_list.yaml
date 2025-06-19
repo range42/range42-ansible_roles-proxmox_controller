@@ -7,7 +7,7 @@
     ####
     ####
 
-    - name: VM - LIST VM
+    - name: VM LIST
       uri:
         url: "https://{{ proxmox_api_host }}/api2/json/nodes/{{ proxmox_node }}/qemu"
         headers:
@@ -19,9 +19,13 @@
     ####
     ####
 
+    - name: VM LIST - PRINT proxmox_call
+      debug:
+        var: proxmox_call
+
     - name: VM LIST - BUILD JSON
       set_fact:
-        vm_list: >- # 
+        vm_list: >- #
           {{ (vm_list | default([])) +
             [ {
               'vm_name':    (item.name    | default('?')),
@@ -43,7 +47,7 @@
             } ] }}
       loop: "{{ proxmox_call.json.data }}"
 
-    - name: RETURN ONLY TASK OUTPUT - vm_list
+    - name: VM LIST - PRINT JSON
       debug:
         var: vm_list
 
@@ -51,23 +55,3 @@
   ####
 
   when: proxmox_vm_action == "vm_list"
-#
-#
-# note - reminder.
-#
-# - name: return only vm_list
-#   debug:
-#     var: vm_list
-#   when: proxmox_vm_action == "vm_list"
-#
-#
-# - name: build json
-#   set_fact:
-#     vm_list:
-#     "{{ proxmox_call.json.data }}"
-#   when: proxmox_vm_action == "vm_start"
-# - name: return json
-#   debug:
-#     var: vm_start
-#   when: proxmox_vm_action == "vm_start"
-

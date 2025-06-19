@@ -9,7 +9,7 @@
 
     - name: STORAGE - LIST ISO
       uri:
-        url: "https://{{ proxmox_api_host }}/api2/json/nodes/{{ proxmox_node }}/storage/{{ proxmox_storage }}/content?content=iso"
+        url: "https://{{ proxmox_api_host }}/api2/json/nodes/{{ proxmox_node }}/storage/{{ storage_name }}/content?content=iso"
         # url: "https://{{ proxmox_api_host }}/api2/json/nodes/{{ proxmox_node }}/storage/local/content?content=iso"
         method: GET
         headers:
@@ -19,6 +19,9 @@
 
     ####
     ####
+    - name: STORAGE - LIST ISO - PRINT proxmox_call
+      debug:
+        var: proxmox_call
 
     - name: STORAGE - LIST ISO - BUILD JSON
       set_fact:
@@ -28,7 +31,7 @@
               'action'      : "storage_list_iso",
               'source'      : "proxmox",
               'proxmox_node': proxmox_node,
-              'storage_name': proxmox_storage,
+              'storage_name': storage_name,
 
               'iso_content' : (item.content | default("?")),
               'iso_format'  : (item.format  | default("?")),
@@ -46,7 +49,7 @@
   ####
 
   vars:
-    proxmox_storage: "local" # TODO - OVERWRITED_ARGUMENTS
+    # proxmox_storage: "local" # TODO - OVERWRITED_ARGUMENTS
 
   ####
 

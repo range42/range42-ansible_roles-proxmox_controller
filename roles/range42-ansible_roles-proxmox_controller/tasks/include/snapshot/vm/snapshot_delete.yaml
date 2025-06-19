@@ -13,10 +13,14 @@
         headers:
           Authorization: "PVEAPIToken={{ proxmox_api_user }}!{{ proxmox_api_token_id }}={{ proxmox_api_token_secret }}"
         validate_certs: no
-      register: snapshot_delete_output
+      register: proxmox_call
 
     ####
     ####
+
+    - name: SNAPSHOT VM - DELETE - PRINT proxmox_call
+      debug:
+        var: proxmox_call
 
     # - name: RETURN ONLY TASK OUTPUT - snapshot_delete_output
     #   shell: 'echo "{{ snapshot_delete_output.json.data | to_nice_yaml }}"'

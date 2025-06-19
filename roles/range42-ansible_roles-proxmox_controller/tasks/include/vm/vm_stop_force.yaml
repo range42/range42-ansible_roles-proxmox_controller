@@ -9,7 +9,7 @@
 
     - name: VM STOP - FORCE POWER OFF
       uri:
-        url: "https://{{ proxmox_api_host }}/api2/json/nodes/{{ proxmox_node }}/qemu/{{ proxmox_vmid }}/status/stop"
+        url: "https://{{ proxmox_api_host }}/api2/json/nodes/{{ proxmox_node }}/qemu/{{ vm_id }}/status/stop"
         method: POST
         headers:
           Authorization: "PVEAPIToken={{ proxmox_api_user }}!{{ proxmox_api_token_id }}={{ proxmox_api_token_secret }}"
@@ -23,7 +23,7 @@
 
     - name: VM STOP - FORCE POWER OFF - FETCH STATUS
       uri:
-        url: "https://{{ proxmox_api_host }}/api2/json/nodes/{{ proxmox_node }}/qemu/{{ proxmox_vmid }}/status/current"
+        url: "https://{{ proxmox_api_host }}/api2/json/nodes/{{ proxmox_node }}/qemu/{{ vm_id }}/status/current"
         method: GET
         headers:
           Authorization: "PVEAPIToken={{ proxmox_api_user }}!{{ proxmox_api_token_id }}={{ proxmox_api_token_secret }}"
@@ -33,6 +33,10 @@
     ####
     ####
 
+    - name: VM STOP - PRINT proxmox_call
+      debug:
+        var: proxmox_call
+
     - name: VM STOP - FORCE POWER OFF - BUILD JSON
       set_fact:
         vm_stop_force:
@@ -40,12 +44,12 @@
           source: "proxmox"
           proxmox_node: "{{ proxmox_node }}"
 
-          vm_id: "{{ proxmox_vmid }}"
+          vm_id: "{{ vm_id }}"
           vm_name: "{{ proxmox_call.json.data.name }}"
           vm_status: "{{ proxmox_call.json.data.status }}"
           # raw_info: "{{ proxmox_call.json }}" # orig json proxmox
 
-    - name: VM STOP - FORCE POWER OFF - SHOW JSON
+    - name: VM STOP - FORCE POWER OFF - PRINT JSON
       debug:
         var: vm_stop_force
 

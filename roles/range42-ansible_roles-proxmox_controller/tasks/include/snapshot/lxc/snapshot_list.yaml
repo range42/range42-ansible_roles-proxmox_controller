@@ -7,21 +7,48 @@
     ####
     ####
 
-    - name: SNAPSHOT VM - LIST SNAPSHOT
+    - name: SNAPSHOT LXC - LIST SNAPSHOT
       uri:
-        url: "https://{{ proxmox_api_host }}/api2/json/nodes/{{ proxmox_node }}/lxc/{{ proxmox_vmid }}/snapshot"
+        url: "https://{{ proxmox_api_host }}/api2/json/nodes/{{ proxmox_node }}/lxc/{{ vm_id }}/snapshot"
         method: GET
 
         headers:
           Authorization: "PVEAPIToken={{ proxmox_api_user }}!{{ proxmox_api_token_id }}={{ proxmox_api_token_secret }}"
         validate_certs: no
-      register: snapshot_list_output
+      register: proxmox_call
+
+    - name: PRINT proxmox_call
+      debug:
+        var: proxmox_call
 
     ####
     ####
+    - name: SNAPSHOT LXC - LIST SNAPSHOT - proxmox_call
+      debug:
+        var: proxmox_call
 
-    - debug: var=snapshot_list_output
+    - name: SNAPSHOT LXC - LIST SNAPSHOT - BUILD JSON
+      set_fact:
+        snapshot_lxc_list: >-
+          {{ (snapshot_lxc_list | default([])) +
+            [{
+              'action': "snapshot_lxc_list",
+              'source': "proxmox",
+              'proxmox_node': proxmox_node,
+              'vm_id': vm_id,
+              
+              'lxc_snapshot_description': (item.description | default("?")),
+              'lxc_snapshot_name'       : (item.name        | default("?")),
+              'lxc_snapshot_parent'     : (item.parent      | default("?")),
+              'lxc_snapshot_time'       : (item.snaptime    | default(-1)),
+              'lxc_snapshot_sha1'       : (item.digest      | default("?")),
+            }]
+          }}
+      loop: "{{ proxmox_call.json.data }}"
 
+    - name: SNNAPSHOT LXC - LIST SNAPSHOT - PRINT JSON
+      debug:
+        var: snapshot_lxc_list
   ####
   ####
 

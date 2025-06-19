@@ -33,9 +33,12 @@
         validate_certs: no
       register: vm_create_output
 
+    - name: VM _CREATE - PRINT proxmox_call
+      debug:
+        var: vm_create_output
+
     ####
     ####
-    - debug: var=vm_create_output
 
   ####
   ####
