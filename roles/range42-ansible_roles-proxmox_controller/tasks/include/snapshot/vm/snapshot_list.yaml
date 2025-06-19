@@ -9,7 +9,7 @@
 
     - name: SNAPSHOT VM - LIST SNAPSHOT
       uri:
-        url: "https://{{ proxmox_api_host }}/api2/json/nodes/{{ proxmox_node }}/qemu/{{ proxmox_vmid }}/snapshot"
+        url: "https://{{ proxmox_api_host }}/api2/json/nodes/{{ proxmox_node }}/qemu/{{ vm_id }}/snapshot"
         method: GET
 
         headers:
@@ -20,31 +20,59 @@
     ####
     ####
 
-    - name: SNAPSHOT VM - LIST SNAPSHOT - proxmox_call
+    - name: SNAPSHOT VM - PRINT proxmox_call
       debug:
         var: proxmox_call
 
-    - name: NAPSHOT VM - LIST SNAPSHOT - BUILD JSON
+    - name: SNAPSHOT VM - LIST SNAPSHOT - BUILD JSON
       set_fact:
         snapshot_vm_list: >-
-          {{ (snapshot_vm_list | default([])) +
-            [{
+          {%- set out = [] -%}
+          {%- for item in proxmox_call.json.data -%}
+          {%-   set _ = out.append({    
+
+
               'action': "snapshot_vm_list",
               'source': "proxmox",
               'proxmox_node': proxmox_node,
+              'vm_id': vm_id,
               
-              'vm_snapshot_description':  (item.description | default("?")),
-              'vm_snapshot_name':   (item.name  | default("?")),
-              'vm_snapshot_parent':   (item.parent  | default("?")),
-              'vm_snapshot_time':   (item.snaptime  | default(-1)),
-              'vm_snapshot_sha1':   (item.digest  | default("?")),
-              'vm_snapshot_is_poweroff':   (item.state  | default(-1)),
-              'vm_snapshot_is_running':   (item.runing  | default(-1)),
-            }]
-          }}
-      loop: "{{ proxmox_call.json.data }}"
+              'vm_snapshot_description' : (item.description   | default("")),
+              'vm_snapshot_name'        : (item.name          | default("")),
+              'vm_snapshot_parent'      : (item.parent        | default("")),
+              'vm_snapshot_time'        : (item.snaptime     if (item.snaptime is defined)     else omit),
+              'vm_snapshot_sha1'        : (item.digest       if (item.digest is defined)     else omit),
+              'vm_snapshot_is_poweroff' : (item.state        if (item.state is defined)     else omit),
+              'vm_snapshot_is_running'  : (item.runing       if (item.runing is defined)     else omit),
+              }) -%}
+          {%- endfor -%}
+          {{ out }}
 
-    - name: NAPSHOT VM - LIST SNAPSHOT - PRINT JSON
+    # dot not remove will be use later to describe reply
+    # dot not remove will be use later to describe reply
+    # dot not remove will be use later to describe reply
+
+    # - name: SNAPSHOT VM - LIST SNAPSHOT - BUILD JSON
+    #   set_fact:
+    #     snapshot_vm_list: >-
+    #       {{ (snapshot_vm_list | default([])) +
+    #         [{
+    #           'action': "snapshot_vm_list",
+    #           'source': "proxmox",
+    #           'proxmox_node': proxmox_node,
+
+    #           'vm_snapshot_description' : (item.description | default("?")),
+    #           'vm_snapshot_name'        : (item.name        | default("?")),
+    #           'vm_snapshot_parent'      : (item.parent      | default("?")),
+    #           'vm_snapshot_time'        : (item.snaptime    | default(-1)),
+    #           'vm_snapshot_sha1'        : (item.digest      | default("?")),
+    #           'vm_snapshot_is_poweroff' : (item.state       | default(-1)),
+    #           'vm_snapshot_is_running'  : (item.runing      | default(-1)),
+    #         }]
+    #       }}
+    #   loop: "{{ proxmox_call.json.data }}"
+
+    - name: SNAPSHOT VM - LIST SNAPSHOT - PRINT JSON
       debug:
         var: snapshot_vm_list
 

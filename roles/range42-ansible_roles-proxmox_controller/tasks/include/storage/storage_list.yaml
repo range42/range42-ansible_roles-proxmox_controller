@@ -19,7 +19,7 @@
     ####
     ####
 
-    - name: RETURN ONLY TASK OUTPUT - proxmox_call
+    - name: SOTRAGE - LIST STORAGE - PRINT proxmox_call
       debug:
         var: proxmox_call
 

@@ -18,9 +18,12 @@
           snapname: "{{ proxmox_snapshot_name }}"
           description: "Snapshot created by Ansible"
         validate_certs: no
-      register: snapshot_create_output
+      register: poroxmox_call
 
-    - debug: var=snapshot_create_output
+    # - debug: var=snapshot_create_output
+    - name: SNAPSHOT VM - PRINT proxmox_call
+      debug:
+        var: proxmox_call
 
   ####
   ####

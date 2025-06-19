@@ -22,7 +22,7 @@
     ####
     ####
 
-    - name: RETURN ONLY TASK OUTPUT - proxmox_call
+    - name: STORAGE - LIST TEMPLATE  - PRINT proxmox_call
       debug:
         var: proxmox_call
 

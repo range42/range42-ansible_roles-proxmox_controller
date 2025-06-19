@@ -12,7 +12,7 @@
         proxmox_vmid: 100 # TODO - OVERWRITED_ARGUMENTS
 
       uri:
-        url: "https://{{ proxmox_api_host }}/api2/json/nodes/{{ proxmox_node }}/qemu/{{ proxmox_vmid }}/config"
+        url: "https://{{ proxmox_api_host }}/api2/json/nodes/{{ proxmox_node }}/qemu/{{ vm_id }}/config"
         method: GET
         headers:
           Authorization: "PVEAPIToken={{ proxmox_api_user }}!{{ proxmox_api_token_id }}={{ proxmox_api_token_secret }}"
@@ -22,7 +22,7 @@
     ####
     ####
 
-    - name: VM - print proxmox_call
+    - name: VM - GET CONFIG - PRINT proxmox_call
       debug:
         var: proxmox_call
 
@@ -48,7 +48,7 @@
             'source' : "proxmox", 
             'proxmox_node': proxmox_node,
 
-            'vm_id'  : proxmox_vmid,
+            'vm_id'  : vm_id,
             'vm_cdrom_device': item.key,
             'vm_cdrom_iso': item.value.split(',')[0],
 

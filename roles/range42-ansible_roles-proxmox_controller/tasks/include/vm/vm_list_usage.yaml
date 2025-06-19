@@ -1,0 +1,57 @@
+---
+##
+##
+##
+
+- block:
+    ####
+    ####
+
+    - name: VM - GET LIST USAGE
+      uri:
+        url: "https://{{ proxmox_api_host }}/api2/json/nodes/{{ proxmox_node }}/qemu"
+        headers:
+          Authorization: "PVEAPIToken={{ proxmox_api_user }}!{{ proxmox_api_token_id }}={{ proxmox_api_token_secret }}"
+        return_content: true
+        validate_certs: no
+      register: proxmox_call
+
+    ####
+    ####
+
+    - name: VM - GET LIST USAGE -  PRINT proxmox_call
+      debug:
+        var: proxmox_call
+
+    - name: VM LIST - BUILD JSON
+      set_fact:
+        vm_list_usage: >- #
+          {{ (vm_list_usage | default([])) +
+            [ {
+              'vm_name':    (item.name    | default('?')),
+              'vm_status':  (item.status  | default('?')),
+              'vm_id':      (item.vmid    | default('?')),
+              'vm_uptime':  (item.uptime  | default('?')),
+              
+              'cpu_current_usage':  (item.cpu       | default('?')),
+              'cpu_allocated':      (item.cpus      | default('?')),
+              'disk_current_usage': (item.disk      | default('?')),
+              'disk_read':          (item.diskread  | default('?')),
+              'disk_write':         (item.diskwrite | default('?')),
+              'disk_max':           (item.maxdisk   | default('?')),
+              'ram_current_usage':  (item.mem       | default('?')),
+              'ram_max':            (item.maxmem    | default('?')),
+              'net_in':             (item.netin     | default('?')),
+              'net_out':            (item.netout    | default('?'))
+              
+            } ] }}
+      loop: "{{ proxmox_call.json.data }}"
+
+    - name: VM - GET VM USAGE - vm_list_usage
+      debug:
+        var: vm_list_usage
+
+  ####
+  ####
+
+  when: proxmox_vm_action == "vm_list_usage"

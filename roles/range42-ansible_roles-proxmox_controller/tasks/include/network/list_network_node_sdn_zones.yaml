@@ -16,14 +16,14 @@
         headers:
           Authorization: "PVEAPIToken={{ proxmox_api_user }}!{{ proxmox_api_token_id }}={{ proxmox_api_token_secret }}"
         validate_certs: no
-      register: proxmox_call_network_list_sdn_zone_int
+      register: proxmox_call
 
     ####
     ####
 
-    - name: RETURN ONLY TASK OUTPUT - proxmox_call_network_list_sdn_zone_int
+    - name: PRINT proxmox_call
       debug:
-        var: proxmox_call_network_list_sdn_zone_int
+        var: proxmox_call
 
   ####
   ####

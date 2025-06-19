@@ -20,9 +20,13 @@
       register: firewall_vm_output
       when: proxmox_vm_action == "firewall_vm_enable"
 
-    - debug: var=firewall_vm_output
+    - debug: var=proxmox_call
 
-  ####
-  ####
+    ####
+    ####
+
+    - name: PRINT proxmox_call
+      debug:
+        var: proxmox_call
 
   when: proxmox_vm_action == "firewall_vm_enable"
