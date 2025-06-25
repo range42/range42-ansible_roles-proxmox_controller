@@ -1,0 +1,47 @@
+---
+##
+## PR-23
+##
+
+- block:
+    ####
+    ####
+
+    - name: SNAPSHOT LXC - CREATE
+      uri:
+        url: "https://{{ proxmox_api_host }}/api2/json/nodes/{{ proxmox_node }}/lxc/{{ vm_id }}/snapshot"
+        method: POST
+        headers:
+          Authorization: "PVEAPIToken={{ proxmox_api_user }}!{{ proxmox_api_token_id }}={{ proxmox_api_token_secret }}"
+        body_format: json
+        body:
+          snapname: "{{ lxc_snapshot_name }}"
+          description: "{{ lxc_snapshot_description }}"
+        validate_certs: no
+      register: proxmox_call
+
+    - name: SNAPSHOT LXC - PRINT proxmox_call
+      debug:
+        var: proxmox_call
+
+    - name: SNAPSHOT LXC - BUILD JSON
+      set_fact:
+        snapshot_lxc_create:
+          action: "snapshot_lxc_create"
+          source: "proxmox"
+          proxmox_node: "{{ proxmox_node }}"
+          #
+          vm_id: "{{ vm_id | int }}"
+          lxc_name: "{{ lxc_name }}"
+          lxc_snapshot_name: "{{ lxc_snapshot_name }}"
+          lxc_snapshot_description: "{{ lxc_snapshot_description }}"
+
+          raw_data: "{{ proxmox_call.json }}"
+
+    - name: LXC GET CONFIG - PRINT JSON
+      debug:
+        var: snapshot_lxc_create
+
+  when: proxmox_vm_action == "snapshot_lxc_create"
+  ####
+  ####
