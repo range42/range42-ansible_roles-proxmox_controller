@@ -1,0 +1,45 @@
+---
+##
+## PR-59
+##
+
+- block:
+    ####
+    ####
+
+    - name: LXC VM - DELETE
+      uri:
+        url: "https://{{ proxmox_api_host }}/api2/json/nodes/{{ proxmox_node }}/lxc/{{ vm_id }}"
+        method: DELETE
+        headers:
+          Authorization: "PVEAPIToken={{ proxmox_api_user }}!{{ proxmox_api_token_id }}={{ proxmox_api_token_secret }}"
+        # body_format: json
+        # body:
+        validate_certs: no
+      register: proxmox_call
+
+    ####
+    ####
+
+    - name: LXC DELETE - PRINT proxmox_call
+      debug:
+        var: proxmox_call
+
+    - name: LXC DELETE - BUILD JSON
+      set_fact:
+        lxc_delete:
+          action: "lxc_delete"
+          source: "proxmox"
+          proxmox_node: "{{ proxmox_node }}"
+          #
+          vm_id: "{{ vm_id | int }}"
+          lxc_name: "{{ lxc_name }}"
+
+          raw_data: "{{ proxmox_call.json }}"
+
+    - name: LXC DELETE - - PRINT JSON
+      debug:
+        var: lxc_delete
+
+  when: proxmox_vm_action == "lxc_delete"
+#
