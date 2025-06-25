@@ -1,0 +1,73 @@
+---
+##
+## PR-58
+##
+
+- block:
+    ####
+    ####
+
+    - name: LXC - CREATE
+      uri:
+        url: "https://{{ proxmox_api_host }}/api2/json/nodes/{{ proxmox_node }}/lxc"
+        method: POST
+        headers:
+          Authorization: "PVEAPIToken={{ proxmox_api_user }}!{{ proxmox_api_token_id }}={{ proxmox_api_token_secret }}"
+        validate_certs: no
+        body_format: form-urlencoded
+        body:
+          vmid: "{{ vm_id }}"
+          hostname: "{{ lxc_name }}"
+          ostemplate: "{{ lxc_template }}" # ex :local:vztmpl/alpine-3.18-default_20250214_amd64.tar.xz
+          password: "{{ lxc_password }}"
+          ssh-public-keys: "{{ lxc_ssh_pubkeys }}"
+          # cpu: "{{ lxc_cpu }}"
+          cores: "{{ lxc_cores }}"
+          memory: "{{ lxc_memory }}" # Mo
+          rootfs: "{{ proxmox_storage }}:{{ lxc_disk_size }}" # GO
+          net0: "name={{ lxc_net_name }},bridge={{ lxc_bridge }},ip={{ lxc_ip }},gw={{ lxc_gateway }}"
+          nameserver: "{{ lxc_dns_primary }},{{ lxc_dns_secondary }}"
+          start: "1" # start now
+      register: proxmox_call
+      # when: proxmox_vm_action == "create_lxc"
+
+    - name: LXC _CREATE - PRINT proxmox_call
+      debug:
+        var: proxmox_call
+
+    ####
+    ####
+
+    - name: LXC CREATE - BUILD JSON
+      set_fact:
+        lxc_create:
+          action: "lxc_create"
+          source: "proxmox"
+          proxmox_node: "{{ proxmox_node }}"
+          #
+          vm_id: "{{ vm_id | int }}"
+          lxc_name: "{{ lxc_name }}"
+          # lxc_cpu: "{{ lxc_cpu }}"
+          lxc_cores: "{{ lxc_cores }}"
+
+          lxc_memory: "{{ lxc_memory }}"
+          #
+          lxc_os_template: "{{ lxc_template }}" # ex :local:vztmpl/alpine-3.18-default_20250214_amd64.tar.xz
+          lxc_password: "{{ lxc_password }}"
+          lxc_ssh_public_keys: "REDACTED" 
+          # lxc_ssh_public_keys: "{{ lxc_ssh_pubkeys }}"
+          #
+          lxc_rootfs: "{{ proxmox_storage }}:{{ lxc_disk_size }}" # GO
+          lxc_net0: "name={{ lxc_net_name }},bridge={{ lxc_bridge }},ip={{ lxc_ip }},gw={{ lxc_gateway }}"
+          lxc_nameserver: "{{ lxc_dns_primary }},{{ lxc_dns_secondary }}"
+          #
+          raw_data: "{{ proxmox_call.json }}"
+
+    - name: LXC GET CONFIG - PRINT JSON
+      debug:
+        var: lxc_create
+
+  ####
+  ####
+
+  when: proxmox_vm_action == "lxc_create"
