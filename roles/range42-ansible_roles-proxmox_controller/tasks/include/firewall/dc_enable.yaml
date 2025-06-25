@@ -1,13 +1,13 @@
 ---
 ##
-##
+## #PR-33
 ##
 
 - block:
     ####
     ####
 
-    - name: DATACENTER LEVEL - ENABLE FIREWALL
+    - name: FIREWALL - DATACENTER - ENABLE FIREWALL
       uri:
         url: "https://{{ proxmox_api_host }}/api2/json/cluster/firewall/options"
         method: PUT
@@ -23,7 +23,19 @@
       debug:
         var: proxmox_call
 
-  ####
-  ####
+    ####
+    ####
+    - name: FIREWALL - DATACENTER - ENABLE - BUILD JSON
+      set_fact:
+        firewall_dc_enable:
+          action: "firewall_dc_enable"
+          source: "proxmox"
+          proxmox_node: "{{ proxmox_node }}"
+          #
+          dc_firewall: "enabled"
+
+    - name: FIREWALL - VM - ENABLE - PRINT JSON
+      debug:
+        var: firewall_dc_enable
 
   when: proxmox_vm_action == "firewall_dc_enable"
