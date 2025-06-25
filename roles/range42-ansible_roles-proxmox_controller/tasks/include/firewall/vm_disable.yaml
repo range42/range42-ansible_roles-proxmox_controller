@@ -7,7 +7,7 @@
     ####
     ####
 
-    - name: FIREWALL - VM - ENABLE
+    - name: FIREWALL - VM - DISABLE
       uri:
         url: "https://{{ proxmox_api_host }}/api2/json/nodes/{{ proxmox_node }}/qemu/{{ vm_id }}/firewall/options"
         method: PUT
@@ -15,31 +15,31 @@
           Authorization: "PVEAPIToken={{ proxmox_api_user }}!{{ proxmox_api_token_id }}={{ proxmox_api_token_secret }}"
         body_format: json
         body:
-          enable: 1
+          enable: 0
         validate_certs: no
       register: proxmox_call
-      when: proxmox_vm_action == "firewall_vm_enable"
+      when: proxmox_vm_action == "firewall_vm_disable"
 
     ####
     ####
 
-    - name: FIREWALL - VM - ENABLE - PRINT proxmox_call
+    - name: FIREWALL - VM - DISABLE - PRINT proxmox_call
       debug:
         var: proxmox_call
 
-    - name: FIREWALL - VM - ENABLE - BUILD JSON
+    - name: FIREWALL - VM - DISABLE - BUILD JSON
       set_fact:
-        firewall_vm_enable:
-          action: "firewall_vm_enable"
+        firewall_vm_disable:
+          action: "firewall_vm_disable"
           source: "proxmox"
           proxmox_node: "{{ proxmox_node }}"
           #
           vm_id: "{{ vm_id | int }}"
           vm_name: "{{ vm_name }}"
-          vm_firewall: "enabled"
+          vm_firewall: "disabled"
 
-    - name: FIREWALL - VM - ENABLE - PRINT JSON
+    - name: FIREWALL - VM - DISABLE - PRINT JSON
       debug:
-        var: firewall_vm_enable
+        var: firewall_vm_disable
 
-  when: proxmox_vm_action == "firewall_vm_enable"
+  when: proxmox_vm_action == "firewall_vm_disable"

@@ -1,13 +1,13 @@
 ---
 ##
-##
+## #PR-32
 ##
 
 - block:
     ####
     ####
 
-    - name: NODE LEVEL - ENABLE FIREWALL
+    - name: FIREWALL - NODE  - ENABLE FIREWALL
       uri:
         url: "https://{{ proxmox_api_host }}/api2/json/nodes/{{ proxmox_node }}/firewall/options"
         method: PUT
@@ -23,7 +23,19 @@
       debug:
         var: proxmox_call
 
-  ####
-  ####
+    ####
+    ####
+    - name: FIREWALL - NODE - ENABLE - BUILD JSON
+      set_fact:
+        firewall_node_enable:
+          action: "firewall_node_enable"
+          source: "proxmox"
+          proxmox_node: "{{ proxmox_node }}"
+          #
+          node_firewall: "enabled"
+
+    - name: FIREWALL - NODE - ENABLE - PRINT JSON
+      debug:
+        var: firewall_node_enable
 
   when: proxmox_vm_action == "firewall_node_enable"
