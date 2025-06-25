@@ -1,0 +1,53 @@
+---
+##
+## PR-55
+##
+
+- block:
+    ####
+    ####
+
+    - name: SNAPSHOT LXC - REVERT
+      uri:
+        url: "https://{{ proxmox_api_host }}/api2/json/nodes/{{ proxmox_node }}/lxc/{{ vm_id }}/snapshot/{{ lxc_snapshot_name }}/rollback"
+        method: POST
+        headers:
+          Authorization: "PVEAPIToken={{ proxmox_api_user }}!{{ proxmox_api_token_id }}={{ proxmox_api_token_secret }}"
+        validate_certs: no
+      register: proxmox_call
+
+    ####
+    ####
+
+    - name: SNAPSHOT VM - PRINT - proxmox_call
+      debug:
+        var: proxmox_call
+
+    ####
+    ####
+
+    - name: SNAPSHOT LXC - REVERT - PRINT proxmox_call
+      debug:
+        var: proxmox_call
+
+    - name: SNAPSHOT LXC - BUILD JSON
+      set_fact:
+        snapshot_lxc_revert:
+          action: "snapshot_lxc_revert"
+          source: "proxmox"
+          proxmox_node: "{{ proxmox_node }}"
+          #
+          vm_id: "{{ vm_id | int }}"
+          lxc_name: "{{ lxc_name }}"
+          lxc_snapshot_name: "{{ lxc_snapshot_name }}"
+
+          raw_data: "{{ proxmox_call.json }}"
+
+    - name: SNAPSHOT VM - REVERT - PRINT JSON
+      debug:
+        var: snapshot_lxc_revert
+
+  ####
+  ####
+
+  when: proxmox_vm_action == "snapshot_lxc_revert"
