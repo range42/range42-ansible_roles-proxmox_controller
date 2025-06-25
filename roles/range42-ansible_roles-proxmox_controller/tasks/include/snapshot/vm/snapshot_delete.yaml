@@ -1,6 +1,6 @@
 ---
 ##
-##
+## PR-20
 ##
 - block:
     ####
@@ -8,10 +8,13 @@
 
     - name: SNAPSHOT VM - DELETE
       uri:
-        url: "https://{{ proxmox_api_host }}/api2/json/nodes/{{ proxmox_node }}/qemu/{{ proxmox_vmid }}/snapshot/{{ proxmox_snapshot_to_delete }}"
+        url: "https://{{ proxmox_api_host }}/api2/json/nodes/{{ proxmox_node }}/qemu/{{ vm_id }}/snapshot/{{ vm_snapshot_name }}"
         method: DELETE
         headers:
           Authorization: "PVEAPIToken={{ proxmox_api_user }}!{{ proxmox_api_token_id }}={{ proxmox_api_token_secret }}"
+        # body_format: json
+        # body:
+
         validate_certs: no
       register: proxmox_call
 
@@ -22,11 +25,22 @@
       debug:
         var: proxmox_call
 
-    # - name: RETURN ONLY TASK OUTPUT - snapshot_delete_output
-    #   shell: 'echo "{{ snapshot_delete_output.json.data | to_nice_yaml }}"'
-    #   register: proxmox_call__shell_pipe__network_vm_list_int
+    - name: SNAPSHOT VM - BUILD JSON
+      set_fact:
+        snapshot_vm_delete:
+          action: "snapshot_vm_delete"
+          source: "proxmox"
+          proxmox_node: "{{ proxmox_node }}"
+          #
+          vm_id: "{{ vm_id | int }}"
+          vm_name: "{{ vm_name }}"
+          vm_snapshot_name: "{{ vm_snapshot_name }}"
 
-    # - debug: var=snapshot_delete_output
+          raw_data: "{{ proxmox_call.json }}"
+
+    - name: SNAPSHOT DELETE - PRINT JSON
+      debug:
+        var: snapshot_vm_delete
 
   ####
   ####

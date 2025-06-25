@@ -1,6 +1,6 @@
 ---
 ##
-## #PR-5
+## PR-5
 ##
 
 - block:
@@ -15,30 +15,52 @@
           Authorization: "PVEAPIToken={{ proxmox_api_user }}!{{ proxmox_api_token_id }}={{ proxmox_api_token_secret }}"
         body_format: form-urlencoded
         body:
+          vmid: "{{ vm_id }}"
+          name: "{{ vm_name }}"
+          cpu: "{{ vm_cpu }}"
+          cores: "{{ vm_cores }}"
+          sockets: "{{ vm_sockets }}"
+          memory: "{{ vm_memory }}"
+          balloon: 0
+          scsi0: "local-lvm:{{ vm_disk_size }},format=raw"
+          ide2: "{{ vm_iso_file }},media=cdrom"
+          net0: "virtio,bridge=vmbr0"
+          boot: "order=ide2"
+
+        validate_certs: no
+      register: proxmox_call
+
+    - name: VM _CREATE - PRINT proxmox_call
+      debug:
+        var: proxmox_call
+
+    ####
+    ####
+
+    - name: VM CREATE - BUILD JSON
+      set_fact:
+        vm_create:
           action: "vm_create"
           source: "proxmox"
           proxmox_node: "{{ proxmox_node }}"
           #
-          vmid: "{{ proxmox_new_vm.vmid }}"
-          name: "{{ proxmox_new_vm.name }}"
-          cpu: "{{ proxmox_new_vm.cpu }}"
-          cores: "{{ proxmox_new_vm.cores }}"
-          sockets: "{{ proxmox_new_vm.sockets }}"
-          memory: "{{ proxmox_new_vm.memory }}"
-          balloon: 0
-          scsi0: "local-lvm:{{ proxmox_new_vm.disk_size }},format=raw"
-          ide2: "{{ proxmox_new_vm.iso }},media=cdrom"
-          net0: "virtio,bridge=vmbr0"
-          boot: "order=ide2"
-        validate_certs: no
-      register: vm_create_output
+          vm_id: "{{ vm_id | int }}"
+          vm_name: "{{ vm_name }}"
+          # vmid: "{{ vm_id }}"
+          vm_cpu: "{{ vm_cpu }}"
+          vm_cores: "{{ vm_cores }}"
+          vm_sockets: "{{ vm_sockets }}"
+          vm_memory: "{{ vm_memory }}"
 
-    - name: VM _CREATE - PRINT proxmox_call
+          vm_scsi0: "local-lvm:{{ vm_disk_size }},format=raw"
+          vm_ide2: "{{ vm_iso_file }},media=cdrom"
+          vm_net0: "virtio,bridge=vmbr0"
+          vm_boot: "order=ide2"
+          raw_data: "{{ proxmox_call.json }}"
+
+    - name: VM GET CONFIG - PRINT JSON
       debug:
-        var: vm_create_output
-
-    ####
-    ####
+        var: vm_create
 
   ####
   ####

@@ -1,6 +1,6 @@
 ---
 ##
-##
+## PR-6
 ##
 
 - block:
@@ -9,14 +9,14 @@
 
     - name: VM - DELETE
       uri:
-        url: "https://{{ proxmox_api_host }}/api2/json/nodes/{{ proxmox_node }}/qemu/{{ proxmox_vmid }}"
+        url: "https://{{ proxmox_api_host }}/api2/json/nodes/{{ proxmox_node }}/qemu/{{ vm_id }}"
         method: DELETE
         headers:
           Authorization: "PVEAPIToken={{ proxmox_api_user }}!{{ proxmox_api_token_id }}={{ proxmox_api_token_secret }}"
+        # body_format: json
+        # body:
         validate_certs: no
-        register: vm_delete_output
-
-    - debug: var=vm_delete_output
+      register: proxmox_call
 
     ####
     ####
@@ -24,6 +24,22 @@
     - name: VM DELETE - PRINT proxmox_call
       debug:
         var: proxmox_call
+
+    - name: VM DELETE - BUILD JSON
+      set_fact:
+        vm_delete:
+          action: "vm_delete"
+          source: "proxmox"
+          proxmox_node: "{{ proxmox_node }}"
+          #
+          vm_id: "{{ vm_id | int }}"
+          vm_name: "{{ vm_name }}"
+
+          raw_data: "{{ proxmox_call.json }}"
+
+    - name: VM DELETE - - PRINT JSON
+      debug:
+        var: vm_delete
 
   when: proxmox_vm_action == "vm_delete"
 #

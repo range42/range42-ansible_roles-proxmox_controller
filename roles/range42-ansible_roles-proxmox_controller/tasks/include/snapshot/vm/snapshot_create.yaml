@@ -1,6 +1,6 @@
 ---
 ##
-## #PR-19
+## PR-19
 ##
 
 - block:
@@ -16,7 +16,7 @@
         body_format: json
         body:
           snapname: "{{ vm_snapshot_name }}"
-          description: "Snapshot created by Ansible"
+          description: "{{ vm_snapshot_description }}"
         validate_certs: no
       register: proxmox_call
 
@@ -25,7 +25,7 @@
       debug:
         var: proxmox_call
 
-    - name: SNAPSHOT VM - BUILD JSON
+    - name: SNAPSHOT LXC - BUILD JSON
       set_fact:
         snapshot_vm_create:
           action: "snapshot_vm_create"
@@ -35,8 +35,21 @@
           vm_id: "{{ vm_id | int }}"
           vm_name: "{{ vm_name }}"
           vm_snapshot_name: "{{ vm_snapshot_name }}"
-
+          vm_snapshot_description: "{{ vm_snapshot_description }}"
           raw_data: "{{ proxmox_call.json }}"
+
+    # - name: SNAPSHOT VM - BUILD JSON
+    #   set_fact:
+    #     snapshot_vm_create:
+    #       action: "snapshot_vm_create"
+    #       source: "proxmox"
+    #       proxmox_node: "{{ proxmox_node }}"
+    #       #
+    #       vm_id: "{{ vm_id | int }}"
+    #       vm_name: "{{ vm_name }}"
+    #       vm_snapshot_name: "{{ vm_snapshot_name }}"
+
+    #       raw_data: "{{ proxmox_call.json }}"
 
     - name: VM GET CONFIG - PRINT JSON
       debug:

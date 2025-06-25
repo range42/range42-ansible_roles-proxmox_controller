@@ -1,6 +1,6 @@
 ---
 ##
-##
+## PR-56
 ##
 
 - block:
@@ -9,7 +9,7 @@
 
     - name: SNAPSHOT VM - REVERT
       uri:
-        url: "https://{{ proxmox_api_host }}/api2/json/nodes/{{ proxmox_node }}/qemu/{{ proxmox_vmid }}/snapshot/{{ proxmox_snapshot_name }}/rollback"
+        url: "https://{{ proxmox_api_host }}/api2/json/nodes/{{ proxmox_node }}/qemu/{{ vm_id }}/snapshot/{{ vm_snapshot_name }}/rollback"
         method: POST
         headers:
           Authorization: "PVEAPIToken={{ proxmox_api_user }}!{{ proxmox_api_token_id }}={{ proxmox_api_token_secret }}"
@@ -23,7 +23,28 @@
       debug:
         var: proxmox_call
 
-  ####
-  ####
+    ####
+    ####
 
-  when: proxmox_vm_action == "snapshot_vm_rollback"
+    - name: SNAPSHOT VM - REVERT - PRINT proxmox_call
+      debug:
+        var: proxmox_call
+
+    - name: SNAPSHOT VM - REVERT BUILD JSON
+      set_fact:
+        snapshot_vm_revert:
+          action: "snapshot_vm_revert"
+          source: "proxmox"
+          proxmox_node: "{{ proxmox_node }}"
+          #
+          vm_id: "{{ vm_id | int }}"
+          vm_name: "{{ vm_name }}"
+          vm_snapshot_name: "{{ vm_snapshot_name }}"
+
+          raw_data: "{{ proxmox_call.json }}"
+
+    - name: SNAPSHOT DELETE - PRINT JSON
+      debug:
+        var: snapshot_vm_revert
+
+  when: proxmox_vm_action == "snapshot_vm_revert"

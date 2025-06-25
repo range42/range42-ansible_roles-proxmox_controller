@@ -1,6 +1,6 @@
 ---
 ##
-## #PR-25
+## PR-54
 ##
 
 - block:
@@ -29,6 +29,7 @@
 
     - name: SNAPSHOT LXC - LIST SNAPSHOT - BUILD JSON
       set_fact:
+              # 'vm_name': {{ vm_name }},
         snapshot_lxc_list: >-
           {{ (snapshot_lxc_list | default([])) +
             [{
