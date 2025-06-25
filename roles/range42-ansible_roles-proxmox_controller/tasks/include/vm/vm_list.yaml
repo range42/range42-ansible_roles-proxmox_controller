@@ -28,10 +28,15 @@
         vm_list: >- #
           {{ (vm_list | default([])) +
             [ {
+              'action': "vm_list",
+              'source': "proxmox",
+              'proxmox_node':   proxmox_node ,
+              
               'vm_name':    (item.name    | default('?')),
               'vm_status':  (item.status  | default('?')),
               'vm_id':      (item.vmid    | default('?')),
               'vm_uptime':  (item.uptime  | default('?')),
+              
               'vm_meta': {
                 'cpu_current_usage':  (item.cpu       | default('?')),
                 'cpu_allocated':      (item.cpus      | default('?')),
