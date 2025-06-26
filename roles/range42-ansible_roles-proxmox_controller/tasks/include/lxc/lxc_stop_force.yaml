@@ -1,0 +1,56 @@
+---
+##
+## ISSUE - 72
+##
+
+- block:
+    ####
+    ####
+
+    - name: LXC STOP - FORCE POWER OFF
+      uri:
+        url: "https://{{ proxmox_api_host }}/api2/json/nodes/{{ proxmox_node }}/lxc/{{ vm_id }}/status/stop"
+        method: POST
+        headers:
+          Authorization: "PVEAPIToken={{ proxmox_api_user }}!{{ proxmox_api_token_id }}={{ proxmox_api_token_secret }}"
+        validate_certs: no
+
+    ####
+    ####
+
+    - name: LXC STOP - FORCE POWER OFF - FETCH STATUS
+      uri:
+        url: "https://{{ proxmox_api_host }}/api2/json/nodes/{{ proxmox_node }}/lxc/{{ vm_id }}/status/current"
+        method: GET
+        headers:
+          Authorization: "PVEAPIToken={{ proxmox_api_user }}!{{ proxmox_api_token_id }}={{ proxmox_api_token_secret }}"
+        validate_certs: no
+      register: proxmox_call
+
+    ####
+    ####
+
+    - name: LXC STOP - PRINT proxmox_call
+      debug:
+        var: proxmox_call
+
+    - name: LXC STOP - FORCE POWER OFF - BUILD JSON
+      set_fact:
+        lxc_stop_force:
+          action: "lxc_stop_force"
+          source: "proxmox"
+          proxmox_node: "{{ proxmox_node }}"
+
+          vm_id: "{{ vm_id }}"
+          lxc_name: "{{ proxmox_call.json.data.name }}"
+          lxc_status: "{{ proxmox_call.json.data.status }}"
+          # raw_info: "{{ proxmox_call.json }}" # orig json proxmox
+
+    - name: LXC STOP - FORCE POWER OFF - PRINT JSON
+      debug:
+        var: lxc_stop_force
+
+  ####
+  ####
+
+  when: proxmox_vm_action == "lxc_stop_force"
