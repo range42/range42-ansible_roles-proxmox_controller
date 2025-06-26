@@ -1,0 +1,46 @@
+---
+##
+## ISSUE - 73
+##
+
+- block:
+    ####
+    ####
+
+    - name: LXC - SET TAG
+      # vars:
+      # proxmox_vmid: 100 # TODO - OVERWRITED_ARGUMENTS
+
+      uri:
+        url: "https://{{ proxmox_api_host }}/api2/json/nodes/{{ proxmox_node }}/lxc/{{ vm_id }}/config"
+        method: PUT
+        headers:
+          Authorization: "PVEAPIToken={{ proxmox_api_user }}!{{ proxmox_api_token_id }}={{ proxmox_api_token_secret }}"
+        validate_certs: no
+        body_format: form-urlencoded
+        body:
+          tags: "{{ lxc_tag_name }}"
+
+      register: proxmox_call
+
+    ####
+    ####
+    - name: LXC - SET TAG - PRINT proxmox_call
+      debug:
+        var: proxmox_call
+
+    ####
+    ####
+
+    - name: LXC - SET TAG - BUILD JSON
+      set_fact:
+        lxc_set_tag:
+          action: "lxc_set_tag"
+          source: "proxmox"
+          tags: "{{ lxc_tag_name }}"
+
+    - name: LXC - GET CONFIG - PRINT JSON
+      debug:
+        var: lxc_set_tag
+
+  when: proxmox_vm_action == "lxc_set_tag"
