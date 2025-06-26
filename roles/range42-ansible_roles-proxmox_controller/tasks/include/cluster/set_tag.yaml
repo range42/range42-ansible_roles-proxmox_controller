@@ -1,0 +1,48 @@
+---
+##
+## ISSUE -
+##
+
+- block:
+    ####
+    ####
+
+    - name: CLUSTER - SET TAG
+
+      # vars:
+      # proxmox_vmid: 100 # TODO - OVERWRITED_ARGUMENTS
+
+      uri:
+        url: "https://{{ proxmox_api_host }}/api2/json/cluster/options"
+        method: PUT
+        headers:
+          Authorization: "PVEAPIToken={{ proxmox_api_user }}!{{ proxmox_api_token_id }}={{ proxmox_api_token_secret }}"
+        validate_certs: no
+        body_format: form-urlencoded
+        body:
+          # tag-style: "color-map=Production:FF0000:FFFFFF"
+          tag-style: "{{ proxmox_cluster_color_mapping }}"
+      register: proxmox_call
+
+    ####
+    ####
+    - name: CLUSTER - SET TAG - PRINT proxmox_call
+      debug:
+        var: proxmox_call
+
+    - name: CLUSTER - SET TAG - BUILD JSON
+      set_fact:
+        cluster_set_tag:
+          action: "cluster_set_tag"
+          source: "proxmox"
+          color_mapping: "{{ proxmox_cluster_color_mapping }}"
+          # raw_info: "{{ proxmox_call.json }}" # orig json proxmox
+
+    - name: CLUSTER - SET TAG - PRINT JSON
+      debug:
+        var: cluster_set_tag
+
+    ####
+    ####
+
+  when: proxmox_vm_action == "cluster_set_tag"
