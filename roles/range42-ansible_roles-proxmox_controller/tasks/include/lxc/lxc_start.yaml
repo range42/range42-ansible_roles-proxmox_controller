@@ -1,0 +1,52 @@
+---
+##
+## ISSUE - 70
+##
+
+- block:
+    ####
+    ####
+
+    - name: LXC START
+      uri:
+        url: "https://{{ proxmox_api_host }}/api2/json/nodes/{{ proxmox_node }}/lxc/{{ vm_id }}/status/start"
+        method: POST
+        headers:
+          Authorization: "PVEAPIToken={{ proxmox_api_user }}!{{ proxmox_api_token_id }}={{ proxmox_api_token_secret }}"
+        validate_certs: no
+        return_content: true
+      register: proxmox_call
+
+    - name: LXC START - FETCH STATUS
+      uri:
+        url: "https://{{ proxmox_api_host }}/api2/json/nodes/{{ proxmox_node }}/lxc/{{ vm_id }}/status/current"
+        method: GET
+        headers:
+          Authorization: "PVEAPIToken={{ proxmox_api_user }}!{{ proxmox_api_token_id }}={{ proxmox_api_token_secret }}"
+        validate_certs: no
+      register: proxmox_call
+
+    - name: LXC START - PRINT proxmox_call
+      debug:
+        var: proxmox_call
+
+    - name: LXC START - BUILD JSON
+      set_fact:
+        lxc_start:
+          action: "lxc_start"
+          source: "proxmox"
+          proxmox_node: "{{ proxmox_node }}"
+          #
+          vm_id: "{{ vm_id }}"
+          lxc_name: "{{ proxmox_call.json.data.name }}"
+          lxc_status: "{{ proxmox_call.json.data.status }}"
+          # raw_info: "{{ proxmox_call.json }}" # orig json proxmox
+
+    - name: LXC START - PRINT JSON
+      debug:
+        var: lxc_start
+
+  ####
+  ####
+
+  when: proxmox_vm_action == "lxc_start"
