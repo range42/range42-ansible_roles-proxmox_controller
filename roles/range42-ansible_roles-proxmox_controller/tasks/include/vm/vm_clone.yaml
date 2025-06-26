@@ -1,0 +1,55 @@
+---
+##
+## ISSUE - 75
+##
+
+- block:
+    ####
+    ####
+
+    - name: VM CLONE - CLEAN SHUTDOWN
+      uri:
+        url: "https://{{ proxmox_api_host }}/api2/json/nodes/{{ proxmox_node }}/qemu/{{ vm_id }}/clone"
+        method: POST
+        headers:
+          Authorization: "PVEAPIToken={{ proxmox_api_user }}!{{ proxmox_api_token_id }}={{ proxmox_api_token_secret }}"
+        validate_certs: no
+        body_format: form-urlencoded
+        body:
+          vmid: "{{ vm_id }}"
+          newid: "{{ vm_new_id }}"
+          name: "{{ vm_name }}"
+          description: "{{ vm_description }}"
+          full: 1
+
+      register: proxmox_call
+
+    ####
+
+    - name: VM CLONE -  PRINT proxmox_call
+      debug:
+        var: proxmox_call
+
+    - name: VM CLONE - BUILD JSON
+      set_fact:
+        vm_clone:
+          action: "vm_clone"
+          source: "proxmox"
+          proxmox_node: "{{ proxmox_node }}"
+          #
+          vm_id: "{{ vm_new_id }}"
+          vm_id_clone_from: "{{ vm_id }}"
+
+          vm_name: "{{ vm_name }}"
+          vm_description: "{{ vm_description }}"
+
+          raw_info: "{{ proxmox_call.json }}" # orig json proxmox
+
+    - name: VM CLONE - PRINT JSON
+      debug:
+        var: vm_clone
+
+  ####
+  ####
+
+  when: proxmox_vm_action == "vm_clone"
