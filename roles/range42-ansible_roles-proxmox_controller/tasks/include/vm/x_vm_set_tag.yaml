@@ -1,0 +1,47 @@
+---
+##
+## ISSUE - 76
+##
+
+- block:
+    ####
+    ####
+
+    - name: VM - SET TAG
+
+      # vars:
+      # proxmox_vmid: 100 # TODO - OVERWRITED_ARGUMENTS
+
+      uri:
+        url: "https://{{ proxmox_api_host }}/api2/json/nodes/{{ proxmox_node }}/qemu/{{ vm_id }}/config"
+        method: POST
+        headers:
+          Authorization: "PVEAPIToken={{ proxmox_api_user }}!{{ proxmox_api_token_id }}={{ proxmox_api_token_secret }}"
+        validate_certs: no
+        body_format: form-urlencoded
+        body:
+          tags: "{{ vm_tag_name }}"
+
+      register: proxmox_call
+
+    ####
+    ####
+    - name: VM - SET TAG - PRINT proxmox_call
+      debug:
+        var: proxmox_call
+
+    ####
+    ####
+
+    - name: VM - SET TAG - BUILD JSON
+      set_fact:
+        vm_set_tag:
+          action: "vm_set_tag"
+          source: "proxmox"
+          tags: "{{ vm_tag_name }}"
+
+    - name: VM - GET CONFIG - PRINT JSON
+      debug:
+        var: vm_set_tag
+
+  when: proxmox_vm_action == "vm_set_tag"
