@@ -1,0 +1,61 @@
+---
+##
+## ISSUE - 68
+##
+
+- block:
+    ####
+    ####
+
+    - name: LXC PAUSE
+      uri:
+        url: "https://{{ proxmox_api_host }}/api2/json/nodes/{{ proxmox_node }}/lxc/{{ vm_id }}/status/suspend"
+        method: POST
+        headers:
+          Authorization: "PVEAPIToken={{ proxmox_api_user }}!{{ proxmox_api_token_id }}={{ proxmox_api_token_secret }}"
+        validate_certs: no
+      register: lxc_pause_output
+
+    - name: LXC PAUSE - PRINT lxc_pause_output
+      debug:
+        var: lxc_pause_output
+
+    ####
+    ####
+
+    - name: LXC PAUSE - FETCH STATUS
+      uri:
+        url: "https://{{ proxmox_api_host }}/api2/json/nodes/{{ proxmox_node }}/lxc/{{ vm_id }}/status/current"
+        method: GET
+        headers:
+          Authorization: "PVEAPIToken={{ proxmox_api_user }}!{{ proxmox_api_token_id }}={{ proxmox_api_token_secret }}"
+        validate_certs: no
+      register: proxmox_call
+
+    ####
+    ####
+
+    - name: LXC PAUSE - PRINT proxmox_call
+      debug:
+        var: proxmox_call
+
+    - name: LXC PAUSE - BUILD JSON
+      set_fact:
+        lxc_pause:
+          action: "lxc_pause"
+          source: "proxmox"
+          proxmox_node: "{{ proxmox_node }}"
+          #
+          vm_id: "{{ vm_id }}"
+          lxc_name: "{{ proxmox_call.json.data.name }}"
+          lxc_status: "{{ proxmox_call.json.data.status }}"
+          # raw_info: "{{ proxmox_call.json }}" # orig json proxmox
+
+    - name: LXC PAUSE - PRINT JSON
+      debug:
+        var: lxc_pause
+
+  ####
+  ####
+
+  when: proxmox_vm_action == "lxc_pause"
