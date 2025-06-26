@@ -1,0 +1,66 @@
+---
+##
+## ISSUE - 66
+##
+
+- block:
+    ####
+    ####
+
+    - name: VM LEVEL - FIREWALL RULE - ALLOW SSH - 22/TCP
+      uri:
+        url: "https://{{ proxmox_api_host}}/api2/json/nodes/{{ proxmox_node}}/qemu/{{ proxmox_vmid}}/firewall/rules"
+        method: POST
+        headers:
+          Authorization: "PVEAPIToken={{ proxmox_api_user}}!{{ proxmox_api_token_id}}={{ proxmox_api_token_secret}}"
+        body_format: json
+        body:
+          # type: "in"
+          # action: "ACCEPT"
+          # proto: "tcp"
+          # dport: "22"
+
+          vmid: "{{ vm_id }}"
+          action: "{{ vm_fw_action }}" # ACCEPT | DROP | REJECT
+          type: "{{ vm_fw_type  }}" # IN | OUT | FORWARD | GROUP
+
+          iface: "{{ vm_fw_iface | default(omit) }}" # STR
+          source: "{{ vm_fw_ip_source | default(omit) }}" # STR
+          dest: "{{ vm_fw_ip_dest | default(omit) }}" # STR
+          proto: "{{ vm_fw_proto | default(omit) }}" # STR
+          dport: "{{ vm_fw_port_dest | default(omit) }}" # STR !!
+          sport: "{{ vm_fw_port_source | default(omit) }}" # STR !!
+          enable: "{{ vm_fw_enable | default(omit) }}" # BOOL
+          comment: "{{ vm_fw_comment | default(omit) }}" # STR
+          pos: "{{ vm_fw_position | default(omit) }}" # INT
+          log: "{{ vm_fw_log_level | default(omit) }}" # ALERT | CRIT | ERR | WARNING | NOTICE | INFO | DEBUG | NOLOG
+        validate_certs: no
+
+    ####
+    ####
+
+    ####
+    ####
+    - name: STORAGE - LIST ISO - PRINT proxmox_call
+      debug:
+        var: proxmox_call
+
+    ####
+    ####
+
+    # - name: VM LEVEL - FIREWALL RULE - DROP ALL - IN
+    #   uri:
+    #     url: "https://{{ proxmox_api_host}}/api2/json/nodes/{{ proxmox_node}}/qemu/{{ proxmox_vmid}}/firewall/rules"
+    #     method: POST
+    #     headers:
+    #       Authorization: "PVEAPIToken={{ proxmox_api_user}}!{{ proxmox_api_token_id}}={{ proxmox_api_token_secret}}"
+    #     body_format: json
+    #     body:
+    #       type: "in"
+    #       action: "DROP"
+    #     validate_certs: no
+
+  ####
+  ####
+
+  when: proxmox_vm_action == "firewall_iptable_rule"
