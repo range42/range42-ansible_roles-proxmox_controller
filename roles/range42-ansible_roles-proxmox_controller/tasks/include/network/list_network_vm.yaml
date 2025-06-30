@@ -1,7 +1,8 @@
 ---
 ##
-## #PR-27
+## ISSUE - 
 ##
+
 
 - block:
     ####
@@ -32,31 +33,30 @@
                 'source': "proxmox",
                 'proxmox_node': proxmox_node,
                 'vm_id': vm_id,
-
                 'vm_network_device'  : item.key,
                 'vm_network_type'    : item.value.split(',')[0].split('=',1)[0],
                 'vm_network_mac'     : item.value.split(',')[0].split('=',1)[1],
                 'vm_network_bridge'  : item.value.split(',')[1].split('=',1)[1],
-                'vm_network_firewall': (item.value.split(',')[2].split('=',1)[1] | int)
-              } ]
+                'vm_network_firewall': (
+                  (item.value.split(',')[2].split('=',1)[1])
+                  if (item.value is defined and (item.value.split(',')|length) > 2 and '=' in item.value.split(',')[2])
+                  else omit
+                )
+            } ]
           }}
       loop: "{{ proxmox_call.json.data | dict2items }}"
       loop_control:
         label: "{{ item.key }}"
       when: item.key is match('^net[0-9]+$')
 
-    - name: SNAPSHOT VM - LIST SNAPSHOT - PRINT JSON
+    - name: NETWORK - VM - LIST NETWORK INTERFACES - PRINT JSON
       debug:
         var: network_list_interfaces_vm
+      when:
+        - network_list_interfaces_vm is defined
+        - network_list_interfaces_vm | length > 0
 
-  when:
-    proxmox_vm_action == "network_list_interfaces_vm"
-
-    # - name: RETURN ONLY TASK OUTPUT - proxmox_call_network_vm_list_int
-    #   shell: 'echo "{{ proxmox_call_network_vm_list_int.json.data | to_nice_yaml }}" | grep -E "net[0-9]{1,4}:"'
-    #   register: proxmox_call__shell_pipe__network_vm_list_int
-
-    # - debug: var=proxmox_call__shell_pipe__network_vm_list_int.stdout_lines
+  when: proxmox_vm_action == "network_list_interfaces_vm"
 
   ####
   ####

@@ -1,6 +1,6 @@
 ---
 ##
-## #PR-12
+## ISSUE - 12
 ##
 
 - block:
@@ -53,7 +53,7 @@
           vm_status: "{{ proxmox_call.json.data.status }}"
           # raw_info: "{{ proxmox_call.json }}" # orig json proxmox
 
-    - name: VM STOP - PRINT JSON
+    - name: VM PAUSE - PRINT JSON
       debug:
         var: vm_pause
 
