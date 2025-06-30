@@ -25,6 +25,10 @@
   ansible.builtin.include_tasks: "./include/vm/vm_resume.yaml"
   when: proxmox_vm_action == "vm_resume"
 
+- name: INCLUDE - ./include/vm/vm_clone.yaml
+  ansible.builtin.include_tasks: "./include/vm/vm_clone.yaml"
+  when: proxmox_vm_action == "vm_clone"
+
 #### #### #### #### #### #### #### #### #### #### #### #### #### #### #### ####
 
 - name: INCLUDE - ./include/vm/vm_get_config.yaml
@@ -131,6 +135,32 @@
   ansible.builtin.include_tasks: "./include/firewall/vm_disable.yaml"
   when: proxmox_vm_action == "firewall_vm_disable"
 
+####
+
+- name: INCLUDE - ./include/firewall/vm_apply_iptables_rule.yaml
+  ansible.builtin.include_tasks: "./include/firewall/vm_apply_iptables_rule.yaml"
+  when: proxmox_vm_action == "firewall_vm_apply_iptables_rule"
+
+- name: INCLUDE - ./include/firewall/vm_list_iptables_rule.yaml
+  ansible.builtin.include_tasks: "./include/firewall/vm_list_iptables_rule.yaml"
+  when: proxmox_vm_action == "firewall_vm_list_iptables_rule"
+
+- name: INCLUDE - ./include/firewall/firewall_vm_list_iptables_alias.yaml
+  ansible.builtin.include_tasks: "./include/firewall/alias/vm_list_iptables_alias.yaml"
+  when: proxmox_vm_action == "firewall_vm_list_iptables_alias"
+
+- name: INCLUDE - ./include/firewall/vm_add_iptables_alias.yaml
+  ansible.builtin.include_tasks: "./include/firewall/alias/vm_add_iptables_alias.yaml"
+  when: proxmox_vm_action == "firewall_vm_add_iptables_alias"
+
+- name: INCLUDE - ./include/firewall/vm_delete_iptables_alias.yaml
+  ansible.builtin.include_tasks: "./include/firewall/alias/vm_delete_iptables_alias.yaml"
+  when: proxmox_vm_action == "firewall_vm_delete_iptables_alias"
+
+- name: INCLUDE - ./include/firewall/vm_delete_iptables_rule.yaml
+  ansible.builtin.include_tasks: "./include/firewall/vm_delete_iptables_rule.yaml"
+  when: proxmox_vm_action == "firewall_vm_delete_iptables_rule"
+
 #### #### #### #### #### #### #### #### #### #### #### #### #### #### #### ####
 
 - name: INCLUDE - ./include/firewall/vm_default_rules_ssh.yaml
@@ -150,12 +180,42 @@
   when: proxmox_vm_action == "lxc_list"
 
 #### #### #### #### #### #### #### #### #### #### #### #### #### #### #### ####
+
+- name: INCLUDE - ./include/lxc/lxc_start.yaml
+  ansible.builtin.include_tasks: "./include/lxc/lxc_start.yaml"
+  when: proxmox_vm_action == "lxc_start"
+
+- name: INCLUDE - ./include/lxc/lxc_stop.yaml
+  ansible.builtin.include_tasks: "./include/lxc/lxc_stop.yaml"
+  when: proxmox_vm_action == "lxc_stop"
+
+- name: INCLUDE - ./include/lxc/lxc_stop_force.yaml
+  ansible.builtin.include_tasks: "./include/lxc/lxc_stop_force.yaml"
+  when: proxmox_vm_action == "lxc_stop_force"
+
+- name: INCLUDE - ./include/lxc/lxc_pause.yaml
+  ansible.builtin.include_tasks: "./include/lxc/lxc_pause.yaml"
+  when: proxmox_vm_action == "lxc_pause"
+
+- name: INCLUDE - ./include/lxc/lxc_resume.yaml
+  ansible.builtin.include_tasks: "./include/lxc/lxc_resume.yaml"
+  when: proxmox_vm_action == "lxc_resume"
+
+- name: INCLUDE - ./include/lxc/lxc_clone.yaml
+  ansible.builtin.include_tasks: "./include/lxc/lxc_clone.yaml"
+  when: proxmox_vm_action == "lxc_clone"
+
+#### #### #### #### #### #### #### #### #### #### #### #### #### #### #### ####
 #### #### #### #### #### #### #### #### #### #### #### #### #### #### #### ####
 #### #### #### #### #### #### #### #### #### #### #### #### #### #### #### ####
 
 - name: INCLUDE - ./include/storage/iso_list.yaml
   ansible.builtin.include_tasks: "./include/storage/iso_list.yaml"
   when: proxmox_vm_action == "storage_list_iso"
+
+- name: INCLUDE - ./include/storage/iso_download.yaml
+  ansible.builtin.include_tasks: "./include/storage/iso_download.yaml"
+  when: proxmox_vm_action == "storage_download_iso"
 
 - name: INCLUDE - ./include/storage/storage_list.yaml
   ansible.builtin.include_tasks: "./include/storage/storage_list.yaml"
@@ -173,10 +233,50 @@
   ansible.builtin.include_tasks: "./include/network/list_network_vm.yaml"
   when: proxmox_vm_action == "network_list_interfaces_vm"
 
+- name: INCLUDE - ./include/network/add_network_vm.yaml
+  ansible.builtin.include_tasks: "./include/network/add_network_vm.yaml"
+  when: proxmox_vm_action == "network_add_interfaces_vm"
+
+- name: INCLUDE - ./include/network/delete_network_vm.yaml
+  ansible.builtin.include_tasks: "./include/network/delete_network_vm.yaml"
+  when: proxmox_vm_action == "network_delete_interfaces_vm"
+
+# - name: INCLUDE - ./include/network/list_network_vm.yaml
+#   ansible.builtin.include_tasks: "./include/network/list_network_vm.yaml"
+#   when: proxmox_vm_action == "network_list_interfaces_vm"
+
 - name: INCLUDE - ./include/network/list_network_node.yaml
   ansible.builtin.include_tasks: "./include/network/list_network_node.yaml"
   when: proxmox_vm_action == "network_list_interfaces_node"
 
+- name: INCLUDE - ./include/network/add_network_node.yaml
+  ansible.builtin.include_tasks: "./include/network/add_network_node.yaml"
+  when: proxmox_vm_action == "network_add_interfaces_node"
+
+- name: INCLUDE - ./include/network/delete_network_node.yaml
+  ansible.builtin.include_tasks: "./include/network/delete_network_node.yaml"
+  when: proxmox_vm_action == "network_delete_interfaces_node"
+
 - name: INCLUDE - ./include/network/list_network_node_sdn_zones.yaml
   ansible.builtin.include_tasks: "./include/network/list_network_node_sdn_zones.yaml"
   when: proxmox_vm_action == "network_list_node_sdn_zones"
+
+#### #### #### #### #### #### #### #### #### #### #### #### #### #### #### ####
+#### #### #### #### #### #### #### #### #### #### #### #### #### #### #### ####
+#### #### #### #### #### #### #### #### #### #### #### #### #### #### #### ####
+
+- name: INCLUDE - ./include/cluster/set_tag.yaml"
+  ansible.builtin.include_tasks: "./include/cluster/set_tag.yaml"
+  when: proxmox_vm_action == "cluster_set_tag"
+
+- name: INCLUDE - ./include/vm/x_vm_set_tag.yaml"
+  ansible.builtin.include_tasks: "./include/vm/x_vm_set_tag.yaml"
+  when: proxmox_vm_action == "vm_set_tag"
+
+- name: INCLUDE - ./include/lxc/x_lxc_set_tag.yaml"
+  ansible.builtin.include_tasks: "./include/lxc/x_lxc_set_tag.yaml"
+  when: proxmox_vm_action == "lxc_set_tag"
+#
+#### #### #### #### #### #### #### #### #### #### #### #### #### #### #### ####
+#### #### #### #### #### #### #### #### #### #### #### #### #### #### #### ####
+#### #### #### #### #### #### #### #### #### #### #### #### #### #### #### ####
