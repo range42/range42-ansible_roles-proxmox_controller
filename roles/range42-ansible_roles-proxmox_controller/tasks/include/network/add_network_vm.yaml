@@ -1,0 +1,68 @@
+---
+##
+## ISSUE - 80
+##
+
+- block:
+    # ####
+
+    - name: NETWORK - VM - PREPARE REQUEST - {{ vm_vmnet_id }}
+      set_fact:
+        net_segments:
+          - "model={{ iface_model }}"
+          - "bridge={{ iface_bridge }}"
+          - "{{ 'firewall=' + (iface_firewall | int | string)        if iface_firewall is defined else '' }}"
+          - "{{ 'link_down=' + (iface_link_down | int | string)      if iface_link_down is defined else '' }}"
+          - "{{ 'macaddr=' + iface_macaddr                           if iface_macaddr is defined else '' }}"
+          - "{{ 'mtu=' + (iface_mtu | int | string)                  if iface_mtu is defined else '' }}"
+          - "{{ 'queues=' + (iface_queues | int | string)            if iface_queues is defined else '' }}"
+          - "{{ 'rate=' + (iface_rate | string)                      if iface_rate is defined else '' }}"
+          - "{{ 'tag=' + (iface_tag | int | string)                  if iface_tag is defined else '' }}"
+          - "{{ 'trunks=' + iface_trunks                             if iface_trunks is defined else '' }}"
+          - "{{ iface_model + '=' + iface_model_mac                  if iface_model_mac is defined else '' }}"
+
+    - name: NETWORK - VM - NETWORK INTERFACES - BUILD REQUEST
+      set_fact:
+        net_param: "{{ net_segments | reject('equalto','') | list | join(',') }}"
+
+    - name: NETWORK - VM - ADD NETWORK INTERFACES - CALL
+      uri:
+        url: "https://{{ proxmox_api_host }}/api2/json/nodes/{{ proxmox_node }}/qemu/{{ vm_id }}/config"
+        method: POST
+        headers:
+          Authorization: "PVEAPIToken={{ proxmox_api_user}}!{{ proxmox_api_token_id}}={{ proxmox_api_token_secret}}"
+        validate_certs: no
+        body_format: json
+        body: >-
+          {{ 
+          { ('net' + (vm_vmnet_id|string)): net_param }
+          }}
+
+      register: call_proxmox
+
+    - name: NETWORK - VM - ADD NETWORK INTERFACES - PRINT CALL
+      debug:
+        var: call_proxmox
+
+    - name: NETWORK - VM - ADD NETWORK INTERFACES - BUILD JSON
+      set_fact:
+        network_add_interfaces_vm:
+          action: "network_add_interfaces_vm"
+          source: "proxmox"
+          proxmox_node: "{{ proxmox_node }}"
+          vm_id: "{{ vm_id | int }}"
+          #
+          iface_firewall: "{{ firewall | default(omit)  }}"
+          iface_link_down: "{{ link_down | default(omit) }}"
+          iface_macaddr: "{{ macaddr | default(omit)  }}"
+          iface_mtu: "{{ mtu | default(omit)  }}"
+          iface_queues: "{{ queues | default(omit)  }}"
+          iface_rate: "{{ rate | default(omit)  }}"
+          iface_tag: "{{ tag | default(omit)  }}"
+          iface_trunks: "{{ trunks | default(omit)  }}"
+          iface_model: "{{ iface_model | default(omit)  }}"
+
+    - name: NETWORK - VM - ADD NETWORK INTERFACES - PRINT JSON
+      debug:
+        var: network_add_interfaces_vm
+  when: proxmox_vm_action == "network_add_interfaces_vm"

@@ -1,0 +1,48 @@
+---
+##
+## ISSUE - 80
+##
+
+- block:
+    ####
+    ####
+
+    - name: NETWORK - VM - DELETE NETWORK INTERFACES
+      uri:
+        url: "https://{{ proxmox_api_host }}/api2/json/nodes/{{ proxmox_node }}/qemu/{{ vm_id }}/config"
+        method: PUT
+        headers:
+          Authorization: "PVEAPIToken={{ proxmox_api_user }}!{{ proxmox_api_token_id }}={{ proxmox_api_token_secret }}"
+        validate_certs: no
+        body_format: form-urlencoded
+        body:
+          delete: "net{{ vm_vmnet_id }}"
+      register: proxmox_call
+
+    ####
+    ####
+
+    - name: NETWORK - VM - DELETE NETWORK INTERFACES - proxmox_call
+      debug:
+        var: proxmox_call
+
+    - name: NETWORK - VM - DELETE NETWORK INTERFACES - BUILD JSON
+      set_fact:
+        network_delete_interfaces_vm:
+          action: "network_delete_interfaces_vm"
+          source: "proxmox"
+          proxmox_node: "{{ proxmox_node }}"
+          vm_id: "{{ vm_id }}"
+          vm_vmnet_id: "{{ vm_vmnet_id }}"
+
+    - name: SNAPSHOT VM - DELETE SNAPSHOT - PRINT JSON
+      debug:
+        var: network_delete_interfaces_vm
+
+  when: proxmox_vm_action == "network_delete_interfaces_vm"
+
+  ####
+  ####
+
+  # vars:
+  #   proxmox_vmid: 100 # TODO - OVERWRITED_ARGUMENTS
