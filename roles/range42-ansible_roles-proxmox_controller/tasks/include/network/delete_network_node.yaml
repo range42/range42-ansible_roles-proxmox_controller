@@ -1,0 +1,46 @@
+---
+##
+## ISSUE - 79
+##
+
+- block:
+    ####
+    ####
+
+    - name: NETWORK - NODE - LIST NETWORK INTERFACES
+      uri:
+        url: "https://{{ proxmox_api_host }}/api2/json/nodes/{{ proxmox_node }}/network/{{ iface_name }}"
+        method: DELETE
+        headers:
+          Authorization: "PVEAPIToken={{ proxmox_api_user }}!{{ proxmox_api_token_id }}={{ proxmox_api_token_secret }}"
+        validate_certs: no
+      register: proxmox_call
+
+    ####
+    ####
+
+    - name: NETWORK - NODE - LIST NETWORK INTERFACES - proxmox_call_list_network_int_node
+      debug:
+        var: proxmox_call
+
+    ####
+    ####
+
+    - name: NETWORK - NODE - DELETE NETWORK INTERFACE - proxmox_call
+      debug:
+        var: proxmox_call
+
+    - name: NETWORK - NODE - DELETE NETWORK INTERFACE - BUILD JSON
+      set_fact:
+        network_delete_interfaces_node:
+          action: "network_delete_interfaces_node"
+          source: "proxmox"
+          proxmox_node: "{{ proxmox_node }}"
+          #
+          iface_name: "{{ iface_name }} "
+
+    - name: NETWORK - NODE - DELETE NETWORK INTERFACE - PRINT JSON
+      debug:
+        var: network_delete_interfaces_node
+
+  when: proxmox_vm_action == "network_delete_interfaces_node"

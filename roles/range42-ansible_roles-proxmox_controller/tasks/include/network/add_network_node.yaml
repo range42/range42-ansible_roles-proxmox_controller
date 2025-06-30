@@ -1,0 +1,114 @@
+---
+##
+## ISSUE - 79
+##
+
+- block:
+    ####
+    ####
+
+    - name: NETWORK - NODE - ADD NETWORK INTERFACE
+      uri:
+        url: "https://{{ proxmox_api_host }}/api2/json/nodes/{{ proxmox_node }}/network"
+        method: POST
+        headers:
+          Authorization: "PVEAPIToken={{ proxmox_api_user }}!{{ proxmox_api_token_id }}={{ proxmox_api_token_secret }}"
+        body_format: json
+        body:
+          # iface: "{{ iface_name }}" # STR
+          # type: "{{ iface_type }}" # STR::enum - bridge | bond | eth | alias | vlan | OVSBridge | OVSBond | OVSPort | OVSIntPort | vnet | unknown
+
+          iface: "{{                 iface_name             | default(omit) }}"
+          type: "{{                  iface_type             | default(omit)  }}"
+          autostart: "{{             iface_autostart        | default(omit)  }}"
+          mtu: "{{                   iface_mtu              | default(omit)  }}"
+          vlan-id: "{{               iface_vlan_id          | default(omit) }}"
+          vlan-raw-device: "{{       iface_vlan_raw_device  | default(omit)  }}"
+
+          address: "{{               ip_address         | default(omit)  }}"
+          cidr: "{{                  ip_cidr            | default(omit)  }}"
+          gateway: "{{               ip_gateway         | default(omit) }}"
+          netmask: "{{               ip_netmask         | default(omit) }}"
+          comments: "{{              ip_comments        | default(omit)  }}"
+
+          address6: "{{              ipv6_address  | default(omit) }}"
+          cidr6: "{{                 ipv6_cidr          | default(omit) }}"
+          comments6: "{{             ipv6_comments      | default(omit) }}"
+          gateway6: "{{              ipv6_gateway       | default(omit) }}"
+          netmask6: "{{              ipv6_netmask       | default(omit)  }}"
+
+          bridge_ports: "{{          bridge_ports       | default(omit)  }}" # default
+          bridge_vids: "{{           bridge_vids        | default(omit)  }}"
+          bridge_vlan_aware: "{{     bridge_vlan_aware  | default(omit)  }}"
+          slaves: "{{                bond_slaves        | default(omit) }}"
+
+          bond-primary: "{{          bond_primary           | default(omit) }}"
+          bond_mode: "{{             bond_mode              | default(omit) }}"
+          bond_xmit_hash_policy: "{{ bond_xmit_hash_policy  | default(omit) }}"
+
+          ovs_bonds: "{{             ovs_bonds    | default(omit) }}"
+          ovs_bridge: "{{            ovs_bridge   | default(omit) }}"
+          ovs_options: "{{           ovs_options  | default(omit) }}"
+          ovs_ports: "{{             ovs_ports    | default(omit) }}"
+          ovs_tag: "{{               ovs_tag      | default(omit)  }}"
+
+        validate_certs: no
+
+      register: proxmox_call
+
+    ####
+    ####
+
+    - name: NETWORK - NODE - ADD NETWORK INTERFACE - proxmox_call
+      debug:
+        var: proxmox_call
+
+    - name: NETWORK - NODE - ADD NETWORK INTERFACE - BUILD JSON
+      set_fact:
+        network_add_interfaces_node:
+          action: "network_add_interfaces_node"
+          source: "proxmox"
+          proxmox_node: "{{ proxmox_node }}"
+          # vm_id: "{{ vm_id | int }}"
+          #
+          iface_name: "{{                  iface_name             | default(omit) }}"
+          iface_type: "{{                  tiface_typeype             | default(omit) }}"
+          iface_autostart: "{{             iface_autostart        | default(omit) }}"
+          iface_mtu: "{{                   iface_mtu              | default(omit) }}"
+          iface_vlan_id: "{{               iface_vlan_id         | default(omit) }}"
+          iface_vlan_raw_device: "{{      iface_vlan_raw_device  | default(omit) }}"
+
+          ip_address: "{{               ip_address        | default(omit) }}"
+          ip_cidr: "{{                  ip_cidr            | default(omit) }}"
+          ip_gateway: "{{               ip_gateway         | default(omit) }}"
+          ip_netmask: "{{               ip_netmask         | default(omit) }}"
+          ip_comments: "{{              ip_comments        | default(omit) }}"
+
+          ipv6_address: "{{              ipv6_address  | default(omit) }}"
+          ipv6_cidr: "{{                 ipv6_cidr          | default(omit) }}"
+          ipv6_comments: "{{             ipv6_comments      | default(omit) }}"
+          ipv6_gateway: "{{              ipv6_gateway       | default(omit) }}"
+          ipv6_netmask: "{{              ipv6_netmask       | default(omit) }}"
+
+          bridge_ports: "{{          bridge_ports       | default(omit) }}"
+          bridge_vids: "{{           bridge_vids        | default(omit) }}"
+          bridge_vlan_aware: "{{     bridge_vlan_aware  | default(omit) }}"
+
+          bond_primary: "{{          bond_primary           | default(omit) }}"
+          bond_mode: "{{             bond_mode              | default(omit) }}"
+          bond_xmit_hash_policy: "{{ bond_xmit_hash_policy  | default(omit) }}"
+          bond_slaves: "{{                bond_slaves   | default(omit) }}"
+
+          ovs_bonds: "{{             ovs_bonds    | default(omit) }}"
+          ovs_bridge: "{{            ovs_bridge   | default(omit) }}"
+          ovs_options: "{{           ovs_options  | default(omit) }}"
+          ovs_ports: "{{             ovs_ports    | default(omit) }}"
+          ovs_tag: "{{               ovs_tag      | default(omit) }}"
+
+          # raw_data: "{{ proxmox_call.json }}"
+
+    - name: NETWORK - NODE - ADD NETWORK INTERFACE - PRINT JSON
+      debug:
+        var: network_add_interfaces_node
+
+  when: proxmox_vm_action == "network_add_interfaces_node"
