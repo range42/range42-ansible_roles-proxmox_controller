@@ -1,0 +1,49 @@
+---
+##
+## ISSUE - 
+##
+
+
+- block:
+    ####
+    ####
+
+    - name: VM LEVEL - DELETE RULE - FIREWALL RULE
+      uri:
+        url: "https://{{ proxmox_api_host}}/api2/json/nodes/{{ proxmox_node}}/qemu/{{ vm_id }}/firewall/rules/{{ vm_fw_pos }}"
+        method: DELETE
+        headers:
+          Authorization: "PVEAPIToken={{ proxmox_api_user}}!{{ proxmox_api_token_id}}={{ proxmox_api_token_secret}}"
+        # #
+        validate_certs: no
+      register: proxmox_call
+
+    - name: PRINT proxmox_call
+      debug:
+        var: proxmox_call
+
+    ####
+    ####
+
+    - name: VM LEVEL - DELETE RULE - PRINT proxmox_call
+      debug:
+        var: proxmox_call
+
+    - name: VM LEVEL - DELETE RULE - BUILD JSON
+      set_fact:
+        firewall_vm_delete_iptables_rule:
+          action: "firewall_vm_delete_iptables_rule"
+          proxmox_node: "{{ proxmox_node }}"
+          source: "proxmox"
+          #
+          vm_id: "{{ vm_id }}"
+          vm_fw_pos: "{{ vm_fw_pos }}"
+
+    - name: VM LEVEL - PRINT JSON
+      debug:
+        var: firewall_vm_delete_iptables_rule
+
+  ####
+  ####
+
+  when: proxmox_vm_action == "firewall_vm_delete_iptables_rule"

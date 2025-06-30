@@ -1,0 +1,83 @@
+---
+##
+## ISSUE - 
+##
+
+
+- block:
+    ####
+    ####
+
+    - name: VM LEVEL - FIREWALL RULE
+      uri:
+        url: "https://{{ proxmox_api_host}}/api2/json/nodes/{{ proxmox_node}}/qemu/{{ vm_id }}/firewall/rules"
+        method: POST
+        headers:
+          Authorization: "PVEAPIToken={{ proxmox_api_user}}!{{ proxmox_api_token_id}}={{ proxmox_api_token_secret}}"
+        body_format: json
+        body:
+          # type: "in"
+          # action: "ACCEPT"
+          # proto: "tcp"
+          # dport: "22"
+
+          vmid: "{{ vm_id }}"
+          action: "{{ vm_fw_action }}" # ACCEPT | DROP | REJECT
+          type: "{{ vm_fw_type  }}" # IN | OUT | FORWARD | GROUP
+
+          iface: "{{ vm_fw_iface | default(omit) }}" # STR
+          source: "{{ vm_fw_source | default(omit) }}" # STR
+          dest: "{{ vm_fw_dest | default(omit) }}" # STR
+          proto: "{{ vm_fw_proto | default(omit) }}" # STR
+          dport: "{{ vm_fw_dport | default(omit) }}" # STR !!
+          sport: "{{ vm_fw_sport | default(omit) }}" # STR !!
+          enable: "{{ vm_fw_enable | default(omit) }}" # BOOL
+          comment: "{{ vm_fw_comment | default(omit) }}" # STR
+          pos: "{{ vm_fw_pos | default(omit) }}" # INT
+          log: "{{ vm_fw_log | default(omit) }}" # ALERT | CRIT | ERR | WARNING | NOTICE | INFO | DEBUG | NOLOG
+          #
+        validate_certs: no
+      register: proxmox_call
+
+    - name: PRINT proxmox_call
+      debug:
+        var: proxmox_call
+
+    ####
+    ####
+
+    - name: VM LEVEL - PRINT proxmox_call
+      debug:
+        var: proxmox_call
+
+    - name: VM LEVEL - BUILD JSON
+      set_fact:
+        firewall_vm_apply_iptables_rule:
+          action: "firewall_vm_apply_iptables_rule"
+          proxmox_node: "{{ proxmox_node }}"
+          source: "proxmox"
+          #
+          vm_id: "{{ vm_id }}"
+          vm_fw_action: "{{ vm_fw_action }}" # ACCEPT | DROP | REJECT
+          vm_fw_type: "{{ vm_fw_type  }}" # IN | OUT | FORWARD | GROUP
+
+          vm_fw_iface: "{{ vm_fw_iface | default(omit) }}" # STR
+          vm_fw_source: "{{ vm_fw_source | default(omit) }}" # STR
+          vm_fw_dest: "{{ vm_fw_dest | default(omit) }}" # STR
+          vm_fw_proto: "{{ vm_fw_proto | default(omit) }}" # STR
+          vm_fw_dport: "{{ vm_fw_dport | default(omit) }}" # STR !!
+          vm_fw_sport: "{{ vm_fw_sport | default(omit) }}" # STR !!
+          vm_fw_enable: "{{ vm_fw_enable | default(omit) }}" # BOOL
+          vm_fw_comment: "{{ vm_fw_comment | default(omit) }}" # STR
+          vm_fw_pos: "{{ vm_fw_pos | default(omit) }}" # INT
+          vm_fw_log: "{{ vm_fw_log | default(omit) }}" # ALERT | CRIT | ERR | WARNING | NOTICE | INFO | DEBUG | NOLOG
+          # raw_info: "{{ proxmox_call.json }}" # orig json proxmox
+
+    - name: VM LEVEL - PRINT JSON
+      debug:
+        var: firewall_vm_apply_iptables_rule
+
+  ####
+  ####
+
+  when: proxmox_vm_action == "firewall_vm_apply_iptables_rule"

@@ -1,0 +1,66 @@
+---
+##
+## ISSUE - 
+##
+
+
+- block:
+    ####
+    ####
+
+    - name: VM LEVEL - FIREWALL RULE
+      uri:
+        url: "https://{{ proxmox_api_host}}/api2/json/nodes/{{ proxmox_node}}/qemu/{{ vm_id }}/firewall/rules"
+        method: GET
+        headers:
+          Authorization: "PVEAPIToken={{ proxmox_api_user}}!{{ proxmox_api_token_id}}={{ proxmox_api_token_secret}}"
+
+        validate_certs: no
+      register: proxmox_call
+
+    - name: PRINT proxmox_call
+      debug:
+        var: proxmox_call
+
+    ####
+    ####
+
+    - name: VM LEVEL - PRINT proxmox_call
+      debug:
+        var: proxmox_call
+
+    - name: VM LIST - BUILD JSON
+      set_fact:
+        firewall_vm_list_iptables_rule: >- #
+          {{ (firewall_vm_list_iptables_rule | default([])) +
+            [ {
+              'action': "firewall_vm_list_iptables_rule",
+              'source': "proxmox",
+              'proxmox_node':   proxmox_node ,
+              'vm_id':   vm_id ,
+
+              'vm_fw_action':    ( item.action | default(omit)),
+              'vm_fw_type':      ( item.type  |default(omit)),
+              'vm_fw_iface':     ( item.iface | default(omit)), 
+              'vm_fw_source':    ( item.source | default(omit)), 
+              'vm_fw_dest':      ( item.dest | default(omit)),
+              'vm_fw_proto':     ( item.proto | default(omit)), 
+              'vm_fw_dport':     ( item.dport | default(omit)), 
+              'vm_fw_sport':     ( item.sport | default(omit)), 
+              'vm_fw_enable':    ( item.enable | default(omit)), 
+              'vm_fw_comment':   ( item.comment | default(omit)), 
+              'vm_fw_pos':       ( item.pos | default(omit)), 
+              'vm_fw_log':       ( item.log | default(omit)),  
+            } ] }}
+      loop: "{{ proxmox_call.json.data }}"
+      loop_control:
+        loop_var: item
+
+    - name: VM LEVEL - PRINT JSON
+      debug:
+        var: firewall_vm_list_iptables_rule
+      when:
+        - firewall_vm_list_iptables_rule is defined
+        - firewall_vm_list_iptables_rule | length > 0
+
+  when: proxmox_vm_action == "firewall_vm_list_iptables_rule"
