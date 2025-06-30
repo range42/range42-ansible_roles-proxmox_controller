@@ -1,0 +1,58 @@
+---
+##
+## ISSUE - 
+##
+
+
+- block:
+    ####
+    ####
+
+    - name: VM LEVEL - LIST FW ALIAS -  FIREWALL RULE
+      uri:
+        url: "https://{{ proxmox_api_host}}/api2/json/nodes/{{ proxmox_node}}/qemu/{{ vm_id }}/firewall/aliases"
+        method: GET
+        headers:
+          Authorization: "PVEAPIToken={{ proxmox_api_user}}!{{ proxmox_api_token_id}}={{ proxmox_api_token_secret}}"
+
+        validate_certs: no
+      register: proxmox_call
+
+    - name: PRINT proxmox_call
+      debug:
+        var: proxmox_call
+
+    ####
+    ####
+
+    - name: VM LEVEL - LIST FW ALIAS -  PRINT proxmox_call
+      debug:
+        var: proxmox_call
+
+    - name: VM LIST - BUILD JSON
+      set_fact:
+        firewall_vm_list_iptables_alias: >- #
+          {{ (firewall_vm_list_iptables_alias | default([])) +
+            [ {
+              'action': "firewall_vm_list_iptables_alias",
+              'source': "proxmox",
+              'proxmox_node':   proxmox_node ,
+              'vm_id':   vm_id ,
+
+              'vm_fw_alias_cidr':  ( item.cidr | default(omit)),
+              'vm_fw_alias_name':  ( item.name  | default(omit)),
+              'vm_fw_comment':     ( item.iface | default(omit)), 
+              
+            } ] }}
+      loop: "{{ proxmox_call.json.data }}"
+      loop_control:
+        loop_var: item
+
+    - name: VM LEVEL - LIST FW ALIAS -  PRINT JSON
+      debug:
+        var: firewall_vm_list_iptables_alias
+      when:
+        - firewall_vm_list_iptables_alias is defined
+        - firewall_vm_list_iptables_alias | length > 0
+
+  when: proxmox_vm_action == "firewall_vm_list_iptables_alias"

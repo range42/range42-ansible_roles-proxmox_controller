@@ -1,0 +1,55 @@
+---
+##
+## ISSUE - 
+##
+
+
+- block:
+    ####
+    ####
+
+    - name: VM LEVEL - FIREWALL RULE
+      uri:
+        url: "https://{{ proxmox_api_host}}/api2/json/nodes/{{ proxmox_node}}/qemu/{{ vm_id }}/firewall/aliases/{{ vm_fw_alias_name }}"
+        method: DELETE
+        headers:
+          Authorization: "PVEAPIToken={{ proxmox_api_user}}!{{ proxmox_api_token_id}}={{ proxmox_api_token_secret}}"
+        # body_format: json
+        # body:
+          # name: "{{ vm_fw_alias_name }}"
+          # cidr: "{{ vm_fw_alias_cidr }}"
+          # comment: "{{ vm_fw_alias_comment | default(omit) }}" # STR
+          #
+        validate_certs: no
+      register: proxmox_call
+
+    - name: PRINT proxmox_call
+      debug:
+        var: proxmox_call
+
+    ####
+    ####
+
+    # when: proxmox_vm_action == "firewall_vm_apply_iptable_rule"
+
+    - name: VM LEVEL - LIST FW ALIAS -  PRINT proxmox_call
+      debug:
+        var: proxmox_call
+
+    - name: VM LIST - BUILD JSON
+      set_fact:
+        firewall_vm_delete_iptables_alias:
+          action: "firewall_vm_delete_iptables_alias"
+          source: "proxmox"
+          proxmox_node: "{{ proxmox_node }}"
+          vm_id: "{{ vm_id }}"
+
+          vm_fw_alias_cidr: "{{ vm_fw_alias_cidr | default(omit) }}"
+          vm_fw_alias_name: "{{ vm_fw_alias_name | default(omit) }}"
+          vm_fw_comment: "{{ vm_fw_comment | default(omit) }}"
+
+    - name: VM LEVEL - LIST FW ALIAS -  PRINT JSON
+      debug:
+        var: firewall_vm_delete_iptables_alias
+
+  when: proxmox_vm_action == "firewall_vm_delete_iptables_alias"
