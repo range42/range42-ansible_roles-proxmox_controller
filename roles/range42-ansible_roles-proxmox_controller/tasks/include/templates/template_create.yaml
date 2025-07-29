@@ -1,0 +1,16 @@
+---
+- block:
+    - name: cloudinit_import_disk_workaround
+      import_tasks: cloudinit_import_disk_workaround.yaml
+
+    - name: cloudinit_import_disk
+      import_tasks: cloudinit_import_disk.yaml
+
+    - name: cloudinit_set_variables
+      import_tasks: cloudinit_set_variables.yaml
+
+    - name: convert_vm_to_template
+      import_tasks: convert_vm_to_template.yaml
+
+  when: proxmox_vm_action == "template_create"
+  
