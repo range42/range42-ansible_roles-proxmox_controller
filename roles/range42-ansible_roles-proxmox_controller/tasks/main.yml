@@ -229,6 +229,32 @@
 #### #### #### #### #### #### #### #### #### #### #### #### #### #### #### ####
 #### #### #### #### #### #### #### #### #### #### #### #### #### #### #### ####
 
+# - name: INCLUDE - ./include/templates/cloudinit_import_disk.yaml
+#   ansible.builtin.include_tasks: "./include/templates/cloudinit_import_disk.yaml"
+#   when: proxmox_vm_action == "template_cloudinit_import_disk"
+
+- name: INCLUDE - ./include/templates/cloudinit_import_disk_workaround.yaml
+  ansible.builtin.include_tasks: "./include/templates/cloudinit_import_disk_workaround.yaml"
+  when: proxmox_vm_action == "template_cloudinit_import_disk"
+
+- name: INCLUDE - ./include/templates/convert_vm_to_template.yaml
+  ansible.builtin.include_tasks: "./include/templates/convert_vm_to_template.yaml"
+  when: proxmox_vm_action == "template_convert_vm_to_template"
+
+- name: INCLUDE - ./include/templates/cloudinit_set_variables.yaml
+  ansible.builtin.include_tasks: "./include/templates/cloudinit_set_variables.yaml"
+  when: proxmox_vm_action == "cloudinit_set_variables"
+
+#### include
+
+- name: INCLUDE - ./include/templates/template_create.yaml
+  ansible.builtin.include_tasks: "./include/templates/template_create.yaml"
+  when: proxmox_vm_action == "template_create"
+
+#### #### #### #### #### #### #### #### #### #### #### #### #### #### #### ####
+#### #### #### #### #### #### #### #### #### #### #### #### #### #### #### ####
+#### #### #### #### #### #### #### #### #### #### #### #### #### #### #### ####
+
 - name: INCLUDE - ./include/network/list_network_vm.yaml
   ansible.builtin.include_tasks: "./include/network/list_network_vm.yaml"
   when: proxmox_vm_action == "network_list_interfaces_vm"
