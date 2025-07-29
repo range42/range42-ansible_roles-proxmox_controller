@@ -1,0 +1,47 @@
+---
+##
+## ISSUE - 81
+##
+
+- block:
+    - name: TEMPLATE - CONVERT VM TO TEMPLATE
+      uri:
+        url: "https://{{ proxmox_api_host }}/api2/json/nodes/{{ proxmox_node }}/qemu/{{ vm_id }}/template"
+        method: POST
+        headers:
+          Authorization: "PVEAPIToken={{ proxmox_api_user }}!{{ proxmox_api_token_id }}={{ proxmox_api_token_secret }}"
+        validate_certs: no
+
+      register: proxmox_call
+
+    ####
+
+    - name: TEMPLATE - CONVERT VM TO TEMPLATE - PRINT proxmox_call
+      debug:
+        var: proxmox_call
+
+    - name: TEMPLATE - CONVERT VM TO TEMPLATE - BUILD JSON
+      set_fact:
+        template_convert_vm_to_template:
+          action: "template_convert_vm_to_template"
+          source: "proxmox"
+          proxmox_node: "{{ proxmox_node }}"
+          proxmox_storage: "{{ proxmox_storage }}"
+          #
+          vm_id: "{{ vm_id }}"
+          status: "template created"
+
+    - name: TEMPLATE - CONVERT VM TO TEMPLATE PRINT JSON
+      debug:
+        var: template_convert_vm_to_template
+
+  ####
+
+  # vars:
+  # proxmox_storage: "local" # TODO - OVERWRITED_ARGUMENTS
+
+  ####
+
+
+  # when: proxmox_vm_action == "template_convert_vm_to_template"
+  when: proxmox_vm_action in ["template_convert_vm_to_template", "template_create"]
