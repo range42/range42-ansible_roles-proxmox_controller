@@ -16,25 +16,25 @@
         validate_certs: no
         body_format: form-urlencoded
         body:
-          content: "{{ file_content_type }}"
-          filename: "{{ file_name }}"
-          storage: "{{ proxmox_storage }}"
-          node: "{{ proxmox_node }}"
-          url: "{{ url }}"
+          content: "{{   iso_file_content_type }}"
+          filename: "{{  iso_file_name }}"
+          url: "{{       iso_url }}"
+          storage: "{{   proxmox_storage }}"
+          node: "{{      proxmox_node }}"
           # full: 1
       register: proxmox_call
 
     ####
     ####
-    - name: STORAGE - LIST ISO - PRINT proxmox_call
+    - name: STORAGE - DOWNLOAD ISO - PRINT proxmox_call
       debug:
         var: proxmox_call
 
-    - name: STORAGE - LIST ISO - PRINT proxmox_call
+    - name: STORAGE - DOWNLOAD ISO - PRINT proxmox_call
       debug:
         var: proxmox_call
 
-    - name: STORAGE - LIST ISO- BUILD JSON
+    - name: STORAGE - DOWNLOAD ISO- BUILD JSON
       set_fact:
         storage_download_iso:
           action: "storage_download_iso"
@@ -42,13 +42,13 @@
           proxmox_node: "{{ proxmox_node }}"
           proxmox_storage: "{{ proxmox_storage }}"
 
-          iso_file_content_type: "{{ file_content_type }}"
-          iso_file_name: "{{ file_name }}"
-          iso_origin_url: "{{ url }}"
+          iso_file_content_type: "{{ iso_file_content_type }}"
+          iso_file_name: "{{         iso_file_name }}"
+          iso_url: "{{               iso_url }}"
 
           raw_info: "{{ proxmox_call.json }}" # orig json proxmox
 
-    - name: STORAGE - LIST ISO - PRINT JSON
+    - name: STORAGE - DOWNLOAD ISO - PRINT JSON
       debug:
         var: storage_download_iso
 
