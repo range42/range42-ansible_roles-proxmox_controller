@@ -5,6 +5,7 @@
 
 - block:
     ####
+    #### improve this one with a call warmup task.
     ####
 
     - name: VM - CREATE
@@ -15,17 +16,25 @@
           Authorization: "PVEAPIToken={{ proxmox_api_user }}!{{ proxmox_api_token_id }}={{ proxmox_api_token_secret }}"
         body_format: form-urlencoded
         body:
-          vmid: "{{ vm_id }}"
-          name: "{{ vm_name }}"
-          cpu: "{{ vm_cpu }}"
-          cores: "{{ vm_cores }}"
+          vmid: "{{    vm_id }}"
+          name: "{{    vm_name }}"
+          cpu: "{{     vm_cpu }}"
+          cores: "{{   vm_cores }}"
           sockets: "{{ vm_sockets }}"
-          memory: "{{ vm_memory }}"
+          memory: "{{  vm_memory }}"
           balloon: 0
-          scsi0: "local-lvm:{{ vm_disk_size }},format=raw"
-          ide2: "{{ vm_iso_file }},media=cdrom"
+          #
+          scsi0: "{{ ('local-lvm:' ~ vm_disk_size ~ ',format=raw') if vm_disk_size is defined else omit }}"
+          ide2: "{{ (vm_iso_file ~ ',media=cdrom') if vm_iso_file is defined else omit }}"
+          boot: "{{ 'order=ide2' if vm_iso_file is defined else omit }}"
+          #
+          # scsi0: "local-lvm:{{ vm_disk_size }},format=raw"
+          # ide2: "{{ vm_iso_file }},media=cdrom"
+          # ide2: "{{ ( vm_iso_file }}',media=cdrom') if vm_iso_file is defined else omit }}"
+          # boot: "order=ide2"
+          #
+
           net0: "virtio,bridge=vmbr0"
-          boot: "order=ide2"
 
         validate_certs: no
       register: proxmox_call
@@ -44,18 +53,23 @@
           source: "proxmox"
           proxmox_node: "{{ proxmox_node }}"
           #
-          vm_id: "{{ vm_id | int }}"
-          vm_name: "{{ vm_name }}"
-          # vmid: "{{ vm_id }}"
-          vm_cpu: "{{ vm_cpu }}"
-          vm_cores: "{{ vm_cores }}"
+          vm_id: "{{      vm_id | int }}"
+          vm_name: "{{    vm_name }}"
+          vm_cpu: "{{     vm_cpu }}"
+          vm_cores: "{{   vm_cores }}"
           vm_sockets: "{{ vm_sockets }}"
-          vm_memory: "{{ vm_memory }}"
+          vm_memory: "{{  vm_memory }}"
 
-          vm_scsi0: "local-lvm:{{ vm_disk_size }},format=raw"
-          vm_ide2: "{{ vm_iso_file }},media=cdrom"
+          # quick improvments
+          vm_scsi0: "{{ ('local-lvm:' ~ vm_disk_size ~ ',format=raw') if vm_disk_size is defined else omit }}"
+          ide2: "{{ (vm_iso_file ~ ',media=cdrom') if vm_iso_file is defined else omit }}"
+          boot: "{{ 'order=ide2' if vm_iso_file is defined else omit }}"
+
+          # vm_scsi0: "local-lvm:{{ vm_disk_size }},format=raw"
+          # vm_ide2: "{{ vm_iso_file }},media=cdrom"
+          # vm_boot: "order=ide2"
+
           vm_net0: "virtio,bridge=vmbr0"
-          vm_boot: "order=ide2"
           raw_data: "{{ proxmox_call.json }}"
 
     - name: VM GET CONFIG - PRINT JSON

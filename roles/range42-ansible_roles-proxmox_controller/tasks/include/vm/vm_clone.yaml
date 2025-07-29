@@ -7,7 +7,7 @@
     ####
     ####
 
-    - name: VM CLONE - CLEAN SHUTDOWN
+    - name: VM CLONE 
       uri:
         url: "https://{{ proxmox_api_host }}/api2/json/nodes/{{ proxmox_node }}/qemu/{{ vm_id }}/clone"
         method: POST
