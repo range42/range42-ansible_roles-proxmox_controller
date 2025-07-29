@@ -1,0 +1,76 @@
+# ---
+# ##
+# ## ISSUE - 83
+# ##
+
+# # import-file bugged / not fully implemented ?
+# #
+# # https://forum.proxmox.com/threads/workaround-how-to-refer-via-api-to-a-downloaded-image-file-stored-in-the-images-folder.161477/
+# # https://forum.proxmox.com/threads/new-vm-from-cloud-init-image-via-api.111091/#post-482517
+# # https://lore.proxmox.com/all/20250408121312.312526-1-d.csapak@proxmox.com/
+# # https://bugzilla.proxmox.com/show_bug.cgi?id=2424
+
+
+# - block:
+#     - name: STORAGE - CLOUD INIT - IMPORT DISK
+#       uri:
+#         url: "https://{{ proxmox_api_host }}/api2/json/nodes/{{ proxmox_node }}/qemu/{{ vm_id }}/config"
+#         method: PUT
+#         headers:
+#           Authorization: "PVEAPIToken={{ proxmox_api_user }}!{{ proxmox_api_token_id }}={{ proxmox_api_token_secret }}"
+#         validate_certs: no
+#         body_format: form-urlencoded
+#         body:
+#           # scsi0: "{{ proxmox_storage }}:vm-{{ vmid }}-disk-0"
+#           # scsi0: "{{ proxmox_storage }}:0,import-from={{ cloudinit_image_path }}"
+#           scsihw: virtio-scsi-pci
+#           # scsi0: "{{ proxmox_storage }}:0,import-from={{ cloudinit_image_path }}"
+#           # scsi0: "local-lvm:0,import-from=/var/lib/vz/template/iso/{{ cloudinit_image_path }}"
+#           # scsi0: "local-lvm:0,import-from=local:iso/{{ cloudinit_image_path }}"
+#           # scsi0: "local-lvm:0,import-from=local:iso/ubuntu-24.04-minimal-cloudimg-arm64.qcow2"
+#           # scsi0: "local-lvm:0,import-from=local:ubuntu-24.04-minimal-cloudimg-arm64.qcow2"
+#           # scsi0: "local-lvm:0,import-from=local:/ubuntu-24.04-minimal-cloudimg-arm64.qcow2"
+#           # scsi0: "local-lvm:0,import-from=local:iso/ubuntu-24.04-minimal-cloudimg-arm64.qcow2"
+#           # scsi0: "local-lvm:0,import-from=local:./iso/ubuntu-24.04-minimal-cloudimg-arm64.qcow2"
+#           # scsi0: "local-lvm:0,import-from=local:iso/ubuntu-24.04-minimal-cloudimg-arm64.qcow2"
+#           # scsi0: "local-lvm:0,import-from=/var/lib/vz/template/iso/ubuntu-24.04-minimal-cloudimg-arm64.qcow2"
+#           # scsi0: "local-lvm:0,import-from=local:iso/ubuntu-24.04-minimal-cloudimg-arm64.qcow2"
+#           # scsi0: "local-lvm:0,import-from=iso/ubuntu-24.04-minimal-cloudimg-arm64.qcow2"
+#           scsi0: "local:iso/ubuntu-24.04-minimal-cloudimg-arm64.qcow2"
+
+#       register: proxmox_call
+
+#     ####
+#     ####
+#     - name: STORAGE - CLOUD INIT - IMPORT DISK  - PRINT proxmox_call
+#       debug:
+#         var: proxmox_call
+
+#     - name: STORAGE - CLOUD INIT - IMPORT DISK - BUILD JSON
+#       set_fact:
+#         storage_cloudinit_import_disk:
+#           action: "storage_cloudinit_import_disk"
+#           source: "proxmox"
+#           proxmox_node: "{{ proxmox_node }}"
+#           proxmox_storage: "{{ proxmox_storage }}"
+#           vm_id: "{{ vm_id }}"
+
+#           cloudinit_image_path: "{{ cloudinit_image_path }}"
+#           # iso_file_name: "{{         iso_file_name }}"
+#           # iso_url: "{{               iso_url }}"
+
+#           # raw_info: "{{ proxmox_call.json }}" # orig json proxmox
+
+#     - name: STORAGE - CLOUD INIT - IMPORT DISK - PRINT JSON
+#       debug:
+#         var: storage_cloudinit_import_disk
+
+#   ####
+
+#   vars:
+#     # proxmox_storage: "local" # TODO - OVERWRITED_ARGUMENTS
+
+#   ####
+
+#   when: proxmox_vm_action == "storage_cloudinit_import_disk"
+    when: proxmox_vm_action in ["storage_cloudinit_import_disk", "template_create"]
