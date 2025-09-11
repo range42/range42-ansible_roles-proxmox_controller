@@ -27,15 +27,15 @@
     ####
     - name: FIREWALL - DATACENTER - DISABLE - BUILD JSON
       set_fact:
-        firewall_dc_enable:
+        firewall_dc_disable:
           action: "firewall_dc_disable"
           source: "proxmox"
           proxmox_node: "{{ proxmox_node }}"
           #
           dc_firewall: "disabled"
 
-    - name: FIREWALL - VM - ENABLE - PRINT JSON
+    - name: FIREWALL - DATACENTER - DISABLE - PRINT JSON
       debug:
-        var: firewall_dc_enable
+        var: firewall_dc_disable
 
   when: proxmox_vm_action == "firewall_dc_disable"

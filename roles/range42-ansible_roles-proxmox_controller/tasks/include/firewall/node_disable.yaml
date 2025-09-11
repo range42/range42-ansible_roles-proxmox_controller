@@ -27,7 +27,7 @@
     ####
     - name: FIREWALL - NODE - DISABLE - BUILD JSON
       set_fact:
-        firewall_node_enable:
+        firewall_node_disable:
           action: "firewall_node_disable"
           source: "proxmox"
           proxmox_node: "{{ proxmox_node }}"
@@ -36,6 +36,6 @@
 
     - name: FIREWALL - NODE - DISABLE - PRINT JSON
       debug:
-        var: firewall_node_enable
+        var: firewall_node_disable 
 
   when: proxmox_vm_action == "firewall_node_disable"
