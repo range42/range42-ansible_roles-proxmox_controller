@@ -1,0 +1,41 @@
+---
+##
+## #PR-33
+##
+
+- block:
+    ####
+    ####
+
+    - name: FIREWALL - DATACENTER - DISABLE FIREWALL
+      uri:
+        url: "https://{{ proxmox_api_host }}/api2/json/cluster/firewall/options"
+        method: PUT
+        headers:
+          Authorization: "PVEAPIToken={{ proxmox_api_user }}!{{ proxmox_api_token_id }}={{ proxmox_api_token_secret }}"
+        body_format: json
+        body:
+          enable: 0
+        validate_certs: no
+      register: proxmox_call
+
+    - name: PRINT proxmox_call
+      debug:
+        var: proxmox_call
+
+    ####
+    ####
+    - name: FIREWALL - DATACENTER - DISABLE - BUILD JSON
+      set_fact:
+        firewall_dc_enable:
+          action: "firewall_dc_disable"
+          source: "proxmox"
+          proxmox_node: "{{ proxmox_node }}"
+          #
+          dc_firewall: "disabled"
+
+    - name: FIREWALL - VM - ENABLE - PRINT JSON
+      debug:
+        var: firewall_dc_enable
+
+  when: proxmox_vm_action == "firewall_dc_disable"
