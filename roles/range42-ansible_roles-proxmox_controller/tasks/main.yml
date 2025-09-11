@@ -123,9 +123,18 @@
   ansible.builtin.include_tasks: "./include/firewall/dc_enable.yaml"
   when: proxmox_vm_action == "firewall_dc_enable"
 
+- name: INCLUDE - ./include/firewall/dc_disable.yaml
+  ansible.builtin.include_tasks: "./include/firewall/dc_disable.yaml"
+  when: proxmox_vm_action == "firewall_dc_disable"
+
 - name: INCLUDE - ./include/firewall/node_enable.yaml
   ansible.builtin.include_tasks: "./include/firewall/node_enable.yaml"
   when: proxmox_vm_action == "firewall_node_enable"
+
+- name: INCLUDE - ./include/firewall/node_disable.yaml
+  ansible.builtin.include_tasks: "./include/firewall/node_disable.yaml"
+  when: proxmox_vm_action == "firewall_node_disable"
+
 
 - name: INCLUDE - ./include/firewall/vm_enable.yaml
   ansible.builtin.include_tasks: "./include/firewall/vm_enable.yaml"
