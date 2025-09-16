@@ -34,7 +34,7 @@
           #
           dc_firewall: "enabled"
 
-    - name: FIREWALL - VM - ENABLE - PRINT JSON
+    - name: FIREWALL - DATACENTER - ENABLE - PRINT JSON
       debug:
         var: firewall_dc_enable
 
