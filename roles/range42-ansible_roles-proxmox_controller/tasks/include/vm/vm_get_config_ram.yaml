@@ -35,9 +35,8 @@
               'proxmox_node': proxmox_node,
 
               'vm_id'  : vm_id,
-              'vm_ram_allocated':  "{{ proxmox_call.json.data.memory | default(0) }}",
+              'vm_ram_allocated':  proxmox_call.json.data.memory | default(0),
             }
-            | to_json
           }}
 
     - name: VM - GET CONFIG -  RAM - PRINT JSON

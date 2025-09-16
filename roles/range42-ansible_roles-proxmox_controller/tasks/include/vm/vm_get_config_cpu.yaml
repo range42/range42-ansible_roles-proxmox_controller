@@ -35,12 +35,12 @@
               'proxmox_node': proxmox_node,
 
               'vm_id'  : vm_id,
-              'vm_arch'   : "{{ proxmox_call.json.data.cpu     | default(0) }}",
-              'vm_cores'  : "{{ proxmox_call.json.data.cores   | default(0) }}",
-              'vm_sockets': "{{ proxmox_call.json.data.sockets | default(0) }}",
-            }
-            | to_json
+              'vm_arch'   : proxmox_call.json.data.cpu     | default(0),
+              'vm_cores'  : proxmox_call.json.data.cores   | default(0),
+              'vm_sockets': proxmox_call.json.data.sockets | default(0),
+            } 
           }}
+
 
     - name: VM - GET CONFIG CPU - PRINT JSON
       debug:
