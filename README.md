@@ -39,49 +39,50 @@ This repository contains an ansible role for interacting with the Proxmox API to
 
 # Repository Content
 
-This repository contains an ansible role for interacting with the proxmox API. It enables automated management of nodes, VMs, containers, storage, networking and firewall configurations and can return results in JSON format.
+This repository contains an ansible role for interacting with the proxmox API. It enables automated management of nodes, VMs, containers, storage, networking and firewall configurations and can return results in JSON format. Current Capabilities (non-exhaustive list) : 
 
-Current Capabilities (non-exhaustive list) : 
-
-Virtual Machines & Containers : 
+**Virtual Machines & Containers : **
 
  - Create and manage Virtual Machines (QEMU) and LXC containers
  - Control lifecycle: start, stop, pause, resume, reset
  - Collect VM configuration: general, CPU, RAM, CD-ROM, tags, etc.
  - List existing VMs and containers
  - Convert VMs to templates
+ - ..
 
-Templates & Cloud-Init
+**Templates & Cloud-Init**
 
  - Create new VM templates
  - Deploy VMs using Cloud-Init
  - Define Cloud-Init variables
  - Partial support for templates and VM provisioning
+ - ..
 
-Snapshots
+**Snapshots**
 
  - Create and revert snapshots for VMs and LXC containers
  - List available snapshots for a VM or LXC
 
-Storage
+**Storage**
 
  - Partial storage management
  - List available ISOs
  - Download ISOs to storage
  - ...
 
-Networking
+**Networking**
 
  - Add and manage network interfaces for VMs
  - Add and manage network interfaces for nodes
  - List network interfaces on VMs and nodes
  - ...
 
-Firewall (proxmox stack)
+**Firewall (proxmox stack)**
 
  - Enable or disable firewall at VM, node, and datacenter levels
  - Configure iptables firewall rules
  - List existing firewall rules
+ - ...
 
 ## Contributing
 
@@ -91,4 +92,5 @@ We use centralized community health files in Range42 community health.
 ## License
 
 - GPL-3.0 license
+
 
