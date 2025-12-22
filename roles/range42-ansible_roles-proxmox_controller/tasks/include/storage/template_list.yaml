@@ -55,7 +55,7 @@
   ####
 
   vars:
-    proxmox_storage: "local" # TODO - OVERWRITED_ARGUMENTS
+    proxmox_storage: "local-lvm" # TODO - OVERWRITED_ARGUMENTS
 
   ####
 

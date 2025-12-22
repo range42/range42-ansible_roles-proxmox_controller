@@ -24,10 +24,10 @@
 
     # - name: debug
     #   debug:
-    #     msg: " qm disk import {{ vm_id }} {{ cloudinit_image_full_path }} {{ dest_proxmox_storage }}"
+    #     msg: " qm disk import {{ vm_id }} {{ cloudinit_image_full_path }} {{ proxmox_dest_vm_storage_name }}"
 
     - name: QM DISK IMPORT TO {{ vm_id }}
-      shell: qm disk import {{ vm_id }} {{ cloudinit_image_full_path }} {{ dest_proxmox_storage }}
+      shell: qm disk import {{ vm_id }} {{ cloudinit_image_full_path }} {{ proxmox_dest_vm_storage_name }}
       args:
         executable: /bin/bash
 
@@ -35,10 +35,10 @@
 
     # - name: debug
     #   debug:
-    #     msg: " qm set {{ vm_id }} --scsihw virtio-scsi-pci --scsi0 {{ dest_proxmox_storage }}:vm-{{ vm_id }}-disk-0"
+    #     msg: " qm set {{ vm_id }} --scsihw virtio-scsi-pci --scsi0 {{ proxmox_dest_vm_storage_name }}:vm-{{ vm_id }}-disk-0"
 
     - name: ENABLE SCSI CONTROLLER AND ATTACH DISK
-      shell: qm set {{ vm_id }} --scsihw virtio-scsi-pci --scsi0 {{ dest_proxmox_storage }}:vm-{{ vm_id }}-disk-0
+      shell: qm set {{ vm_id }} --scsihw virtio-scsi-pci --scsi0 {{ proxmox_dest_vm_storage_name }}:vm-{{ vm_id }}-disk-0
       args:
         executable: /bin/bash
 
@@ -49,7 +49,7 @@
     #     msg: " qm set {{ vm_id }} --ide2 local:cloudinit,media=cdrom"
 
     - name: ADD CLOUD INIT DRIVE - IDE2
-      shell: qm set {{ vm_id }} --ide2 local:cloudinit,media=cdrom
+      shell: qm set {{ vm_id }} --ide2 {{ proxmox_dest_vm_storage_name }}:cloudinit,media=cdrom
       args:
         executable: /bin/bash
 
