@@ -34,7 +34,8 @@
           # boot: "order=ide2"
           #
 
-          net0: "virtio,bridge=vmbr0"
+          # net0: "virtio,bridge=vmbr0"
+          net0: "virtio,bridge={{ vm_net_virtio_bridge | default('vmbr0') }}"
 
         validate_certs: no
       register: proxmox_call
@@ -69,7 +70,10 @@
           # vm_ide2: "{{ vm_iso_file }},media=cdrom"
           # vm_boot: "order=ide2"
 
-          vm_net0: "virtio,bridge=vmbr0"
+          # vm_net0: "virtio,bridge=vmbr0"
+
+          vm_net0: "virtio,bridge={{ vm_net_virtio_bridge | default('vmbr0') }}"
+
           raw_data: "{{ proxmox_call.json }}"
 
     - name: VM GET CONFIG - PRINT JSON
