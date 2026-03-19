@@ -37,6 +37,9 @@
               'vm_id':      (item.vmid    | default('?')),
               'vm_uptime':  (item.uptime  | default('?')),
               
+              'vm_template':        (item.template  | default(0)),
+              'vm_tags':            (item.tags      | default('')),
+
               'vm_meta': {
                 'cpu_current_usage':  (item.cpu       | default('?')),
                 'cpu_allocated':      (item.cpus      | default('?')),

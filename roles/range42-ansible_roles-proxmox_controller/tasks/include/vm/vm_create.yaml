@@ -24,7 +24,7 @@
           memory: "{{  vm_memory }}"
           balloon: 0
           #
-          scsi0: "{{ ('local-lvm:' ~ vm_disk_size ~ ',format=raw') if vm_disk_size is defined else omit }}"
+          scsi0: "{{ ((proxmox_dest_vm_storage_name | default('local-lvm')) ~ ':' ~ vm_disk_size ~ ',format=raw') if vm_disk_size is defined else omit }}"
           ide2: "{{ (vm_iso_file ~ ',media=cdrom') if vm_iso_file is defined else omit }}"
           boot: "{{ 'order=ide2' if vm_iso_file is defined else omit }}"
           #
@@ -62,7 +62,7 @@
           vm_memory: "{{  vm_memory }}"
 
           # quick improvments
-          vm_scsi0: "{{ ('local-lvm:' ~ vm_disk_size ~ ',format=raw') if vm_disk_size is defined else omit }}"
+          vm_scsi0: "{{ ((proxmox_dest_vm_storage_name | default('local-lvm')) ~ ':' ~ vm_disk_size ~ ',format=raw') if vm_disk_size is defined else omit }}"
           ide2: "{{ (vm_iso_file ~ ',media=cdrom') if vm_iso_file is defined else omit }}"
           boot: "{{ 'order=ide2' if vm_iso_file is defined else omit }}"
 

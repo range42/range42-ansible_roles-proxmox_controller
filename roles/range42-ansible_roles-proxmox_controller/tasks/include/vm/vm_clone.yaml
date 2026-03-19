@@ -21,6 +21,7 @@
           name: "{{ vm_name }}"
           description: "{{ vm_description }}"
           full: 1
+          storage: "{{ proxmox_dest_vm_storage_name | default(omit) }}"
 
       register: proxmox_call
 
