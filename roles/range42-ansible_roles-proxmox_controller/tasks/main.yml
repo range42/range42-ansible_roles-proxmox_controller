@@ -311,6 +311,23 @@
 - name: INCLUDE - ./include/lxc/x_lxc_set_tag.yaml"
   ansible.builtin.include_tasks: "./include/lxc/x_lxc_set_tag.yaml"
   when: proxmox_vm_action == "lxc_set_tag"
+
+- name: INCLUDE - ./include/vm/x_vm_set_name.yaml"
+  ansible.builtin.include_tasks: "./include/vm/x_vm_set_name.yaml"
+  when: proxmox_vm_action == "vm_set_name"
+
+- name: INCLUDE - ./include/vm/x_vm_set_description.yaml"
+  ansible.builtin.include_tasks: "./include/vm/x_vm_set_description.yaml"
+  when: proxmox_vm_action == "vm_set_description"
+
+- name: INCLUDE - ./include/vm/x_vm_set_cpu.yaml"
+  ansible.builtin.include_tasks: "./include/vm/x_vm_set_cpu.yaml"
+  when: proxmox_vm_action == "vm_set_cpu"
+
+- name: INCLUDE - ./include/vm/x_vm_set_memory.yaml"
+  ansible.builtin.include_tasks: "./include/vm/x_vm_set_memory.yaml"
+  when: proxmox_vm_action == "vm_set_memory"
+
 #
 #### #### #### #### #### #### #### #### #### #### #### #### #### #### #### ####
 #### #### #### #### #### #### #### #### #### #### #### #### #### #### #### ####

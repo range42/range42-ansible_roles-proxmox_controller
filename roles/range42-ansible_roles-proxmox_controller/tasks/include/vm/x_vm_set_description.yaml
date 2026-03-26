@@ -1,0 +1,47 @@
+---
+##
+## ISSUE - 76
+##
+
+- block:
+    ####
+    ####
+
+    - name: VM - SET DESCRIPTION
+
+      # vars:
+      # proxmox_vmid: 100 # TODO - OVERWRITED_ARGUMENTS
+
+      uri:
+        url: "https://{{ proxmox_api_host }}/api2/json/nodes/{{ proxmox_node }}/qemu/{{ vm_id }}/config"
+        method: POST
+        headers:
+          Authorization: "PVEAPIToken={{ proxmox_api_user }}!{{ proxmox_api_token_id }}={{ proxmox_api_token_secret }}"
+        validate_certs: no
+        body_format: form-urlencoded
+        body:
+          description: "{{ vm_description }}"
+
+      register: proxmox_call
+
+    ####
+    ####
+    - name: VM - SET DESCRIPTION - PRINT proxmox_call
+      debug:
+        var: proxmox_call
+
+    ####
+    ####
+
+    - name: VM - SET DESCRIPTION - BUILD JSON
+      set_fact:
+        vm_set_description:
+          action: "vm_set_description"
+          source: "proxmox"
+          description: "{{ vm_description }}"
+
+    - name: VM - GET CONFIG - PRINT JSON
+      debug:
+        var: vm_set_description
+
+  when: proxmox_vm_action == "vm_set_description"

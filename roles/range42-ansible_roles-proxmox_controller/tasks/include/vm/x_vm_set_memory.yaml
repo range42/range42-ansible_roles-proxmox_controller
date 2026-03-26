@@ -1,0 +1,47 @@
+---
+##
+## ISSUE - 76
+##
+
+- block:
+    ####
+    ####
+
+    - name: VM - SET MEMORY
+
+      # vars:
+      # proxmox_vmid: 100 # TODO - OVERWRITED_ARGUMENTS
+
+      uri:
+        url: "https://{{ proxmox_api_host }}/api2/json/nodes/{{ proxmox_node }}/qemu/{{ vm_id }}/config"
+        method: POST
+        headers:
+          Authorization: "PVEAPIToken={{ proxmox_api_user }}!{{ proxmox_api_token_id }}={{ proxmox_api_token_secret }}"
+        validate_certs: no
+        body_format: form-urlencoded
+        body:
+          memory: "{{ vm_memory }}"
+
+      register: proxmox_call
+
+    ####
+    ####
+    - name: VM - SET MEMORY - PRINT proxmox_call
+      debug:
+        var: proxmox_call
+
+    ####
+    ####
+
+    - name: VM - SET MEMORY - BUILD JSON
+      set_fact:
+        vm_set_memory:
+          action: "vm_set_memory"
+          source: "proxmox"
+          memory: "{{ vm_memory }}"
+
+    - name: VM - GET CONFIG - PRINT JSON
+      debug:
+        var: vm_set_memory
+
+  when: proxmox_vm_action == "vm_set_memory"
