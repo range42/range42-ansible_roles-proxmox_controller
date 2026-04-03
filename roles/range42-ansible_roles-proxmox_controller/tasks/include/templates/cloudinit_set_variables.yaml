@@ -30,6 +30,9 @@
           searchdomain: "{{ vm_ci_dns_domain | default(omit)  }}"
           nameserver: "{{ vm_ci_dns_ips | default(omit)  }}" # format :  1.1.1.1,2.2.2.2
 
+          # switch network bridge if vm_net_virtio_bridge is defined (e.g. template on vmbr140 → VM on vmbr142)
+          net0: "{{ ('virtio,bridge=' + vm_net_virtio_bridge) if vm_net_virtio_bridge is defined else omit }}"
+
           ipconfig0: >-
             {% if vm_ci_ip is defined %}ip={{ vm_ci_ip }}/{{ vm_ci_netmask }}{% if vm_ci_ip_gw is defined %},gw={{ vm_ci_ip_gw }}{% endif %}{% else %}{{ omit }}{% endif %}
           # ipconfig0: >-
