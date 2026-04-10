@@ -4,9 +4,22 @@
 ##
 
 - block:
-    ####
-    #### improve this one with a call warmup task.
-    ####
+
+    - name: VM - CHECK IF VM ID ALREADY EXISTS
+      uri:
+        url: "https://{{ proxmox_api_host }}/api2/json/nodes/{{ proxmox_node }}/qemu/{{ vm_id }}/status/current"
+        method: GET
+        headers:
+          Authorization: "PVEAPIToken={{ proxmox_api_user }}!{{ proxmox_api_token_id }}={{ proxmox_api_token_secret }}"
+        validate_certs: no
+        status_code: [200, 500]
+      register: _vm_exists_check
+      failed_when: false
+
+    - name: VM - SKIP CREATE (VM ID {{ vm_id }} already exists)
+      debug:
+        msg: "VM ID {{ vm_id }} already exists — skipping creation"
+      when: _vm_exists_check.status == 200
 
     - name: VM - CREATE
       uri:
@@ -39,10 +52,12 @@
 
         validate_certs: no
       register: proxmox_call
+      when: _vm_exists_check.status != 200
 
     - name: VM _CREATE - PRINT proxmox_call
       debug:
         var: proxmox_call
+      when: _vm_exists_check.status != 200
 
     ####
     ####
@@ -74,11 +89,13 @@
 
           vm_net0: "virtio,bridge={{ vm_net_virtio_bridge | default('vmbr0') }}"
 
-          raw_data: "{{ proxmox_call.json }}"
+          raw_data: "{{ proxmox_call.json | default({}) }}"
+      when: _vm_exists_check.status != 200
 
     - name: VM GET CONFIG - PRINT JSON
       debug:
         var: vm_create
+      when: _vm_exists_check.status != 200
 
   ####
   ####

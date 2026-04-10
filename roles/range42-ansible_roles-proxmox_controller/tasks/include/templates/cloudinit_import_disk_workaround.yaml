@@ -11,14 +11,27 @@
 # https://bugzilla.proxmox.com/show_bug.cgi?id=2424
 
 - block:
+    - name: CHECK IF CLOUD-INIT DISK ALREADY IMPORTED (skip if scsi0 exists)
+      shell: qm config {{ vm_id }} | grep -q 'scsi0:'
+      register: _disk_exists_check
+      failed_when: false
+      changed_when: false
+
+    - name: SKIP IMPORT (VM {{ vm_id }} already has disk attached)
+      debug:
+        msg: "VM {{ vm_id }} already has scsi0 disk — skipping import"
+      when: _disk_exists_check.rc == 0
+
     - name: debug
       debug:
         msg: " qemu-img resize --shrink {{ cloudinit_image_full_path}} {{ vm_disk_size }}"
+      when: _disk_exists_check.rc != 0
 
     - name: RESIZE DISK
       shell: qemu-img resize --shrink {{ cloudinit_image_full_path}} {{ vm_disk_size }}
       args:
         executable: /bin/bash
+      when: _disk_exists_check.rc != 0
 
     #### #### #### #### #### #### #### #### #### #### #### #### #### #### #### #### #### #### #### #### #### #### #### ####
 
@@ -30,6 +43,7 @@
       shell: qm disk import {{ vm_id }} {{ cloudinit_image_full_path }} {{ proxmox_dest_vm_storage_name }}
       args:
         executable: /bin/bash
+      when: _disk_exists_check.rc != 0
 
     #### #### #### #### #### #### #### #### #### #### #### #### #### #### #### #### #### #### #### #### #### #### #### ####
 
@@ -41,6 +55,7 @@
       shell: qm set {{ vm_id }} --scsihw virtio-scsi-pci --scsi0 {{ proxmox_dest_vm_storage_name }}:vm-{{ vm_id }}-disk-0
       args:
         executable: /bin/bash
+      when: _disk_exists_check.rc != 0
 
     #### #### #### #### #### #### #### #### #### #### #### #### #### #### #### #### #### #### #### #### #### #### #### ####
 
@@ -52,6 +67,7 @@
       shell: qm set {{ vm_id }} --ide2 {{ proxmox_dest_vm_storage_name }}:cloudinit,media=cdrom
       args:
         executable: /bin/bash
+      when: _disk_exists_check.rc != 0
 
     #### #### #### #### #### #### #### #### #### #### #### #### #### #### #### #### #### #### #### #### #### #### #### ####
 
@@ -63,6 +79,7 @@
       shell: qm set {{ vm_id }} --boot c --bootdisk scsi0
       args:
         executable: /bin/bash
+      when: _disk_exists_check.rc != 0
 
     #### #### #### #### #### #### #### #### #### #### #### #### #### #### #### #### #### #### #### #### #### #### #### ####
 
@@ -74,6 +91,7 @@
       shell: qm set {{ vm_id }} --serial0 socket --vga serial0
       args:
         executable: /bin/bash
+      when: _disk_exists_check.rc != 0
 
     # #### #### #### #### #### #### #### #### #### #### #### #### #### #### #### #### #### #### #### #### #### #### #### ####
 

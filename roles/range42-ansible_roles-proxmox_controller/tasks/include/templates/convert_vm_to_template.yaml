@@ -4,6 +4,22 @@
 ##
 
 - block:
+    - name: TEMPLATE - CHECK IF ALREADY A TEMPLATE
+      uri:
+        url: "https://{{ proxmox_api_host }}/api2/json/nodes/{{ proxmox_node }}/qemu/{{ vm_id }}/config"
+        method: GET
+        headers:
+          Authorization: "PVEAPIToken={{ proxmox_api_user }}!{{ proxmox_api_token_id }}={{ proxmox_api_token_secret }}"
+        validate_certs: no
+        status_code: [200, 500]
+      register: _template_check
+      failed_when: false
+
+    - name: TEMPLATE - SKIP (VM ID {{ vm_id }} is already a template)
+      debug:
+        msg: "VM ID {{ vm_id }} is already a template — skipping conversion"
+      when: _template_check.status == 200 and (_template_check.json.data.template | default(0) | int) == 1
+
     - name: TEMPLATE - CONVERT VM TO TEMPLATE
       uri:
         url: "https://{{ proxmox_api_host }}/api2/json/nodes/{{ proxmox_node }}/qemu/{{ vm_id }}/template"
@@ -11,14 +27,13 @@
         headers:
           Authorization: "PVEAPIToken={{ proxmox_api_user }}!{{ proxmox_api_token_id }}={{ proxmox_api_token_secret }}"
         validate_certs: no
-
       register: proxmox_call
-
-    ####
+      when: not (_template_check.status == 200 and (_template_check.json.data.template | default(0) | int) == 1)
 
     - name: TEMPLATE - CONVERT VM TO TEMPLATE - PRINT proxmox_call
       debug:
         var: proxmox_call
+      when: proxmox_call is defined and proxmox_call is not skipped
 
     - name: TEMPLATE - CONVERT VM TO TEMPLATE - BUILD JSON
       set_fact:
@@ -30,10 +45,12 @@
           #
           vm_id: "{{ vm_id }}"
           status: "template created"
+      when: not (_template_check.status == 200 and (_template_check.json.data.template | default(0) | int) == 1)
 
     - name: TEMPLATE - CONVERT VM TO TEMPLATE PRINT JSON
       debug:
         var: template_convert_vm_to_template
+      when: template_convert_vm_to_template is defined
 
   ####
 
