@@ -11,6 +11,41 @@
 # https://bugzilla.proxmox.com/show_bug.cgi?id=2424
 
 - block:
+    # net0 bridge changes require the VM to be stopped — hot-unplug fails if running
+    - name: CLOUD INIT - CHECK IF VM IS RUNNING
+      uri:
+        url: "https://{{ proxmox_api_host }}/api2/json/nodes/{{ proxmox_node }}/qemu/{{ vm_id }}/status/current"
+        method: GET
+        headers:
+          Authorization: "PVEAPIToken={{ proxmox_api_user }}!{{ proxmox_api_token_id }}={{ proxmox_api_token_secret }}"
+        validate_certs: no
+      register: _ci_vm_status
+      failed_when: false
+
+    - name: CLOUD INIT - STOP VM BEFORE APPLYING CONFIG (was running)
+      uri:
+        url: "https://{{ proxmox_api_host }}/api2/json/nodes/{{ proxmox_node }}/qemu/{{ vm_id }}/status/stop"
+        method: POST
+        headers:
+          Authorization: "PVEAPIToken={{ proxmox_api_user }}!{{ proxmox_api_token_id }}={{ proxmox_api_token_secret }}"
+        validate_certs: no
+        body_format: form-urlencoded
+        body: {}
+      when: _ci_vm_status.json.data.status | default('stopped') == 'running'
+
+    - name: CLOUD INIT - WAIT FOR VM TO STOP
+      uri:
+        url: "https://{{ proxmox_api_host }}/api2/json/nodes/{{ proxmox_node }}/qemu/{{ vm_id }}/status/current"
+        method: GET
+        headers:
+          Authorization: "PVEAPIToken={{ proxmox_api_user }}!{{ proxmox_api_token_id }}={{ proxmox_api_token_secret }}"
+        validate_certs: no
+      register: _ci_vm_stop_check
+      until: _ci_vm_stop_check.json.data.status == 'stopped'
+      retries: 30
+      delay: 5
+      when: _ci_vm_status.json.data.status | default('stopped') == 'running'
+
     - name: CLOUD INIT - INJECT VARIABLE
       uri:
         url: "https://{{ proxmox_api_host }}/api2/json/nodes/{{ proxmox_node }}/qemu/{{ vm_id }}/config"
