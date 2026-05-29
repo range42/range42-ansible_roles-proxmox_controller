@@ -70,7 +70,7 @@
 
           # Proxmox resets boot order to order=net0 when net0 is changed without a MAC.
           # Explicitly restore disk-first boot so cloud-init VMs don't PXE-loop.
-          boot: "order=scsi0"
+          boot: "order={{ vm_boot_disk | default('scsi0') }}"
 
           ipconfig0: >-
             {% if vm_ci_ip is defined %}ip={{ vm_ci_ip }}/{{ vm_ci_netmask }}{% if vm_ci_ip_gw is defined %},gw={{ vm_ci_ip_gw }}{% endif %}{% else %}{{ omit }}{% endif %}
