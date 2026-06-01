@@ -74,6 +74,11 @@
 
           ipconfig0: >-
             {% if vm_ci_ip is defined %}ip={{ vm_ci_ip }}/{{ vm_ci_netmask }}{% if vm_ci_ip_gw is defined %},gw={{ vm_ci_ip_gw }}{% endif %}{% else %}{{ omit }}{% endif %}
+
+          # Vendor-data snippet — sets a short APT timeout so cloud-init's
+          # automatic package_upgrade (always injected by Proxmox) fails fast
+          # rather than hanging when internet repos are unreachable.
+          cicustom: "{{ vm_ci_cicustom | default(omit) }}"
           # ipconfig0: >-
           #   {% if vm_ci_ip is defined %}
           #     ip={{ vm_ci_ip }}/{{ vm_ci_netmask }}
