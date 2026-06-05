@@ -46,6 +46,11 @@
       delay: 5
       when: _ci_vm_status.json.data.status | default('stopped') == 'running'
 
+    - name: CLOUD INIT - COMPUTE MAC FROM VM ID
+      set_fact:
+        _vm_net_mac_effective: "{{ vm_net_virtio_mac | default('52:54:00:%02x:%02x:%02x' % ((vm_id | int // 65536) % 256, (vm_id | int // 256) % 256, vm_id | int % 256)) }}"
+      when: vm_net_virtio_bridge is defined
+
     - name: CLOUD INIT - INJECT VARIABLE
       uri:
         url: "https://{{ proxmox_api_host }}/api2/json/nodes/{{ proxmox_node }}/qemu/{{ vm_id }}/config"
@@ -66,7 +71,8 @@
           nameserver: "{{ vm_ci_dns_ips | default(omit)  }}" # format :  1.1.1.1,2.2.2.2
 
           # switch network bridge if vm_net_virtio_bridge is defined (e.g. template on vmbr140 → VM on vmbr142)
-          net0: "{{ ('virtio,bridge=' + vm_net_virtio_bridge) if vm_net_virtio_bridge is defined else omit }}"
+          # MAC is pinned (derived from vm_id) so Proxmox does not silently reset boot order to order=net0
+          net0: "{{ ('virtio,bridge=' + vm_net_virtio_bridge + ',macaddr=' + _vm_net_mac_effective) if vm_net_virtio_bridge is defined else omit }}"
 
           ipconfig0: >-
             {% if vm_ci_ip is defined %}ip={{ vm_ci_ip }}/{{ vm_ci_netmask }}{% if vm_ci_ip_gw is defined %},gw={{ vm_ci_ip_gw }}{% endif %}{% else %}{{ omit }}{% endif %}
