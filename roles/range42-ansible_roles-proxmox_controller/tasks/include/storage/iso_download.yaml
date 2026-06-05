@@ -14,7 +14,6 @@
         url: "{{ iso_url | dirname }}/SHA256SUMS"
         method: GET
         return_content: true
-        validate_certs: no
       register: _sha256sums
       failed_when: false
       changed_when: false
@@ -24,7 +23,6 @@
         url: "{{ iso_url | dirname }}/SHA512SUMS"
         method: GET
         return_content: true
-        validate_certs: no
       register: _sha512sums
       failed_when: false
       changed_when: false
