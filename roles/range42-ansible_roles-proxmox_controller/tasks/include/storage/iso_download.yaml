@@ -5,46 +5,98 @@
 
 - block:
     ####
-    #### Step 1: check if file already exists on the Proxmox node filesystem
+    #### Step 1: dynamically fetch remote checksum from distro's checksum file
+    #### (SHA256SUMS first, SHA512SUMS as fallback — same base URL as the image)
+    ####
+
+    - name: STORAGE - DOWNLOAD ISO - FETCH SHA256SUMS
+      ansible.builtin.uri:
+        url: "{{ iso_url | dirname }}/SHA256SUMS"
+        method: GET
+        return_content: true
+        validate_certs: no
+      register: _sha256sums
+      failed_when: false
+      changed_when: false
+
+    - name: STORAGE - DOWNLOAD ISO - FETCH SHA512SUMS (fallback)
+      ansible.builtin.uri:
+        url: "{{ iso_url | dirname }}/SHA512SUMS"
+        method: GET
+        return_content: true
+        validate_certs: no
+      register: _sha512sums
+      failed_when: false
+      changed_when: false
+      when: _sha256sums.status | default(0) != 200
+
+    - name: STORAGE - DOWNLOAD ISO - PARSE remote checksum
+      ansible.builtin.set_fact:
+        _iso_remote_checksum: >-
+          {{
+            (
+              (_sha256sums.content if _sha256sums.status | default(0) == 200
+               else _sha512sums.content | default(''))
+              .splitlines()
+              | select('search', (iso_url | basename) ~ '$')
+              | list
+              | first
+              | default('')
+            ).split() | first | default('')
+          }}
+        _iso_checksum_algorithm: >-
+          {{ 'sha256' if _sha256sums.status | default(0) == 200 else
+             'sha512' if _sha512sums.status | default(0) == 200 else
+             'sha256' }}
+
+    - name: STORAGE - DOWNLOAD ISO - PRINT remote checksum
+      ansible.builtin.debug:
+        msg: >-
+          Remote checksum ({{ _iso_checksum_algorithm }}):
+          {{ _iso_remote_checksum if _iso_remote_checksum else 'not found — will skip verification' }}
+
+    ####
+    #### Step 2: check if file already exists on the Proxmox node filesystem
+    #### (compute hash only when we have a remote checksum to compare against)
     ####
 
     - name: STORAGE - DOWNLOAD ISO - STAT existing file on proxmox node
       ansible.builtin.stat:
         path: "/var/lib/vz/template/iso/{{ iso_file_name }}"
-        get_checksum: "{{ iso_checksum is defined }}"
-        checksum_algorithm: "{{ iso_checksum_algorithm | default('sha256') }}"
+        get_checksum: "{{ _iso_remote_checksum != '' }}"
+        checksum_algorithm: "{{ _iso_checksum_algorithm }}"
       register: _iso_stat
       delegate_to: "{{ inventory_hostname }}-cli"
 
     ####
-    #### Step 2a: file exists + checksum matches → skip
+    #### Step 3a: file exists + checksum matches → skip
     ####
 
     - name: STORAGE - DOWNLOAD ISO - SKIP (file exists, hash matches)
       ansible.builtin.debug:
         msg: >-
           ISO {{ iso_file_name }} already exists with matching
-          {{ iso_checksum_algorithm | default('sha256') }} checksum — skipping download.
+          {{ _iso_checksum_algorithm }} checksum — skipping download.
       when:
         - _iso_stat.stat.exists
-        - iso_checksum is defined
-        - _iso_stat.stat.checksum == iso_checksum
+        - _iso_remote_checksum != ''
+        - _iso_stat.stat.checksum == _iso_remote_checksum
 
     ####
-    #### Step 2b: file exists + no checksum provided → skip with info
+    #### Step 3b: file exists + no remote checksum found → skip with warning
     ####
 
-    - name: STORAGE - DOWNLOAD ISO - SKIP (file exists, no checksum provided)
+    - name: STORAGE - DOWNLOAD ISO - SKIP (file exists, remote checksum unavailable)
       ansible.builtin.debug:
         msg: >-
-          ISO {{ iso_file_name }} already exists. No iso_checksum provided —
-          skipping download (set iso_checksum + iso_checksum_algorithm to verify integrity).
+          ISO {{ iso_file_name }} already exists. Could not retrieve a remote
+          checksum file — skipping download without verification.
       when:
         - _iso_stat.stat.exists
-        - iso_checksum is not defined
+        - _iso_remote_checksum == ''
 
     ####
-    #### Step 2c: file exists + checksum mismatch → delete stale file so download proceeds
+    #### Step 3c: file exists + checksum mismatch → delete stale file
     ####
 
     - name: STORAGE - DOWNLOAD ISO - DELETE stale file (hash mismatch)
@@ -54,11 +106,12 @@
       delegate_to: "{{ inventory_hostname }}-cli"
       when:
         - _iso_stat.stat.exists
-        - iso_checksum is defined
-        - _iso_stat.stat.checksum != iso_checksum
+        - _iso_remote_checksum != ''
+        - _iso_stat.stat.checksum != _iso_remote_checksum
 
     ####
-    #### Step 3: download (file absent, or stale file just deleted)
+    #### Step 4: download (file absent, or stale file just deleted)
+    #### Passes the remote checksum to Proxmox so it verifies the download.
     ####
 
     - block:
@@ -76,8 +129,8 @@
               url: "{{       iso_url }}"
               storage: "{{   proxmox_storage }}"
               node: "{{      proxmox_node }}"
-              checksum: "{{ iso_checksum | default(omit) }}"
-              checksum-algorithm: "{{ iso_checksum_algorithm | default(omit) }}"
+              checksum: "{{ _iso_remote_checksum if _iso_remote_checksum else omit }}"
+              checksum-algorithm: "{{ _iso_checksum_algorithm if _iso_remote_checksum else omit }}"
           register: proxmox_call
 
         - name: STORAGE - DOWNLOAD ISO - PRINT proxmox_call
@@ -104,7 +157,7 @@
 
       when: >
         not _iso_stat.stat.exists or
-        (iso_checksum is defined and _iso_stat.stat.checksum != iso_checksum)
+        (_iso_remote_checksum != '' and _iso_stat.stat.checksum != _iso_remote_checksum)
 
   ####
 
