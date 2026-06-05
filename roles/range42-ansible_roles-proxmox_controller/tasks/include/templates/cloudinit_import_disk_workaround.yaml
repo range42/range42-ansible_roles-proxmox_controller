@@ -87,8 +87,8 @@
     #   debug:
     #     msg: " qm set {{ vm_id }} --serial0 socket --vga serial0"
 
-    - name: SET VGA
-      shell: qm set {{ vm_id }} --vga std
+    - name: ADD VGA SERIAL CONSOLE
+      shell: qm set {{ vm_id }} --serial0 socket --vga serial0
       args:
         executable: /bin/bash
       when: _disk_exists_check.rc != 0
