@@ -5,11 +5,31 @@
 
 - block:
     ####
-    #### Step 1: dynamically fetch remote checksum from distro's checksum file
-    #### (SHA256SUMS first, SHA512SUMS as fallback — same base URL as the image)
+    #### Step 1: resolve the expected checksum.
+    ####
+    #### Primary trust anchor: iso_checksum (+ iso_checksum_algorithm) set by the
+    #### caller (e.g. from the catalog's image.yml). When provided, this value is
+    #### trusted unconditionally — no remote fetch is needed.
+    ####
+    #### Fallback (convenience mode): if iso_checksum is NOT set, we try to fetch
+    #### SHA256SUMS / SHA512SUMS from the same base URL as the image. NOTE: this
+    #### only detects accidental file corruption or a stale cached image — it does
+    #### NOT protect against a compromised mirror (an attacker controlling the
+    #### server can serve a matching sums file alongside a malicious image). For
+    #### hardened environments, always set iso_checksum in the catalog.
     ####
 
-    - name: STORAGE - DOWNLOAD ISO - FETCH SHA256SUMS
+    # --- primary trust anchor path ---
+
+    - name: STORAGE - DOWNLOAD ISO - USE hardcoded checksum (primary trust anchor)
+      ansible.builtin.set_fact:
+        _iso_remote_checksum: "{{ iso_checksum }}"
+        _iso_checksum_algorithm: "{{ iso_checksum_algorithm | default('sha256') }}"
+      when: iso_checksum is defined
+
+    # --- dynamic fetch path (fallback when no hardcoded checksum) ---
+
+    - name: STORAGE - DOWNLOAD ISO - FETCH SHA256SUMS (fallback mode)
       ansible.builtin.uri:
         url: "{{ iso_url | dirname }}/SHA256SUMS"
         method: GET
@@ -17,8 +37,9 @@
       register: _sha256sums
       failed_when: false
       changed_when: false
+      when: iso_checksum is not defined
 
-    - name: STORAGE - DOWNLOAD ISO - FETCH SHA512SUMS (fallback)
+    - name: STORAGE - DOWNLOAD ISO - FETCH SHA512SUMS (second fallback)
       ansible.builtin.uri:
         url: "{{ iso_url | dirname }}/SHA512SUMS"
         method: GET
@@ -26,9 +47,11 @@
       register: _sha512sums
       failed_when: false
       changed_when: false
-      when: _sha256sums.status | default(0) != 200
+      when:
+        - iso_checksum is not defined
+        - _sha256sums.status | default(0) != 200
 
-    - name: STORAGE - DOWNLOAD ISO - PARSE remote checksum
+    - name: STORAGE - DOWNLOAD ISO - PARSE remote checksum (fallback mode)
       ansible.builtin.set_fact:
         _iso_remote_checksum: >-
           {{
@@ -36,7 +59,8 @@
               (_sha256sums.content if _sha256sums.status | default(0) == 200
                else _sha512sums.content | default(''))
               .splitlines()
-              | select('search', (iso_url | basename) ~ '$')
+              | select('match',
+                  '^[0-9a-fA-F]+\\s+\\*?' ~ (iso_url | basename | regex_escape) ~ '$')
               | list
               | first
               | default('')
@@ -46,16 +70,28 @@
           {{ 'sha256' if _sha256sums.status | default(0) == 200 else
              'sha512' if _sha512sums.status | default(0) == 200 else
              'sha256' }}
+      when: iso_checksum is not defined
 
-    - name: STORAGE - DOWNLOAD ISO - PRINT remote checksum
+    - name: STORAGE - DOWNLOAD ISO - WARN no checksum available (fallback mode)
       ansible.builtin.debug:
         msg: >-
-          Remote checksum ({{ _iso_checksum_algorithm }}):
-          {{ _iso_remote_checksum if _iso_remote_checksum else 'not found — will skip verification' }}
+          WARNING: iso_checksum is not set and no SHA256SUMS/SHA512SUMS file was found
+          at {{ iso_url | dirname }}. File integrity cannot be verified.
+          Set iso_checksum in the catalog for hardened environments.
+      when:
+        - iso_checksum is not defined
+        - _iso_remote_checksum == ''
+
+    - name: STORAGE - DOWNLOAD ISO - PRINT resolved checksum
+      ansible.builtin.debug:
+        msg: >-
+          Checksum ({{ _iso_checksum_algorithm }}):
+          {{ _iso_remote_checksum if _iso_remote_checksum else 'none — skipping verification' }}
+          [source: {{ 'catalog (trusted)' if iso_checksum is defined else 'remote sums file (convenience)' }}]
 
     ####
     #### Step 2: check if file already exists on the Proxmox node filesystem
-    #### (compute hash only when we have a remote checksum to compare against)
+    #### (compute hash only when we have a checksum to compare against)
     ####
 
     - name: STORAGE - DOWNLOAD ISO - STAT existing file on proxmox node
@@ -81,14 +117,14 @@
         - _iso_stat.stat.checksum == _iso_remote_checksum
 
     ####
-    #### Step 3b: file exists + no remote checksum found → skip with warning
+    #### Step 3b: file exists + no checksum available → skip with warning
     ####
 
-    - name: STORAGE - DOWNLOAD ISO - SKIP (file exists, remote checksum unavailable)
+    - name: STORAGE - DOWNLOAD ISO - SKIP (file exists, no checksum to verify)
       ansible.builtin.debug:
         msg: >-
-          ISO {{ iso_file_name }} already exists. Could not retrieve a remote
-          checksum file — skipping download without verification.
+          ISO {{ iso_file_name }} already exists. No checksum available —
+          skipping download without integrity verification.
       when:
         - _iso_stat.stat.exists
         - _iso_remote_checksum == ''
@@ -109,7 +145,7 @@
 
     ####
     #### Step 4: download (file absent, or stale file just deleted)
-    #### Passes the remote checksum to Proxmox so it verifies the download.
+    #### Passes the checksum to Proxmox so it also verifies the transfer.
     ####
 
     - block:
