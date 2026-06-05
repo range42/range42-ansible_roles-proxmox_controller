@@ -5,52 +5,106 @@
 
 - block:
     ####
+    #### Step 1: check if file already exists on the Proxmox node filesystem
     ####
 
-    - name: Download -  ISO
-      uri:
-        url: "https://{{ proxmox_api_host }}/api2/json/nodes/{{ proxmox_node }}/storage/{{ proxmox_storage }}/download-url"
-        method: POST
-        headers:
-          Authorization: "PVEAPIToken={{ proxmox_api_user }}!{{ proxmox_api_token_id }}={{ proxmox_api_token_secret }}"
-        validate_certs: no
-        body_format: form-urlencoded
-        body:
-          content: "{{   iso_file_content_type }}"
-          filename: "{{  iso_file_name }}"
-          url: "{{       iso_url }}"
-          storage: "{{   proxmox_storage }}"
-          node: "{{      proxmox_node }}"
-          # full: 1
-      register: proxmox_call
+    - name: STORAGE - DOWNLOAD ISO - STAT existing file on proxmox node
+      ansible.builtin.stat:
+        path: "/var/lib/vz/template/iso/{{ iso_file_name }}"
+        get_checksum: "{{ iso_checksum is defined }}"
+        checksum_algorithm: "{{ iso_checksum_algorithm | default('sha256') }}"
+      register: _iso_stat
+      delegate_to: "{{ inventory_hostname }}-cli"
 
     ####
+    #### Step 2a: file exists + checksum matches → skip
     ####
-    - name: STORAGE - DOWNLOAD ISO - PRINT proxmox_call
-      debug:
-        var: proxmox_call
 
-    - name: STORAGE - DOWNLOAD ISO - PRINT proxmox_call
-      debug:
-        var: proxmox_call
+    - name: STORAGE - DOWNLOAD ISO - SKIP (file exists, hash matches)
+      ansible.builtin.debug:
+        msg: >-
+          ISO {{ iso_file_name }} already exists with matching
+          {{ iso_checksum_algorithm | default('sha256') }} checksum — skipping download.
+      when:
+        - _iso_stat.stat.exists
+        - iso_checksum is defined
+        - _iso_stat.stat.checksum == iso_checksum
 
-    - name: STORAGE - DOWNLOAD ISO- BUILD JSON
-      set_fact:
-        storage_download_iso:
-          action: "storage_download_iso"
-          source: "proxmox"
-          proxmox_node: "{{ proxmox_node }}"
-          proxmox_storage: "{{ proxmox_storage }}"
+    ####
+    #### Step 2b: file exists + no checksum provided → skip with info
+    ####
 
-          iso_file_content_type: "{{ iso_file_content_type }}"
-          iso_file_name: "{{         iso_file_name }}"
-          iso_url: "{{               iso_url }}"
+    - name: STORAGE - DOWNLOAD ISO - SKIP (file exists, no checksum provided)
+      ansible.builtin.debug:
+        msg: >-
+          ISO {{ iso_file_name }} already exists. No iso_checksum provided —
+          skipping download (set iso_checksum + iso_checksum_algorithm to verify integrity).
+      when:
+        - _iso_stat.stat.exists
+        - iso_checksum is not defined
 
-          raw_info: "{{ proxmox_call.json }}" # orig json proxmox
+    ####
+    #### Step 2c: file exists + checksum mismatch → delete stale file so download proceeds
+    ####
 
-    - name: STORAGE - DOWNLOAD ISO - PRINT JSON
-      debug:
-        var: storage_download_iso
+    - name: STORAGE - DOWNLOAD ISO - DELETE stale file (hash mismatch)
+      ansible.builtin.file:
+        path: "/var/lib/vz/template/iso/{{ iso_file_name }}"
+        state: absent
+      delegate_to: "{{ inventory_hostname }}-cli"
+      when:
+        - _iso_stat.stat.exists
+        - iso_checksum is defined
+        - _iso_stat.stat.checksum != iso_checksum
+
+    ####
+    #### Step 3: download (file absent, or stale file just deleted)
+    ####
+
+    - block:
+        - name: STORAGE - DOWNLOAD ISO - download via Proxmox API
+          uri:
+            url: "https://{{ proxmox_api_host }}/api2/json/nodes/{{ proxmox_node }}/storage/{{ proxmox_storage }}/download-url"
+            method: POST
+            headers:
+              Authorization: "PVEAPIToken={{ proxmox_api_user }}!{{ proxmox_api_token_id }}={{ proxmox_api_token_secret }}"
+            validate_certs: no
+            body_format: form-urlencoded
+            body:
+              content: "{{   iso_file_content_type }}"
+              filename: "{{  iso_file_name }}"
+              url: "{{       iso_url }}"
+              storage: "{{   proxmox_storage }}"
+              node: "{{      proxmox_node }}"
+              checksum: "{{ iso_checksum | default(omit) }}"
+              checksum-algorithm: "{{ iso_checksum_algorithm | default(omit) }}"
+          register: proxmox_call
+
+        - name: STORAGE - DOWNLOAD ISO - PRINT proxmox_call
+          debug:
+            var: proxmox_call
+
+        - name: STORAGE - DOWNLOAD ISO - BUILD JSON
+          set_fact:
+            storage_download_iso:
+              action: "storage_download_iso"
+              source: "proxmox"
+              proxmox_node: "{{ proxmox_node }}"
+              proxmox_storage: "{{ proxmox_storage }}"
+
+              iso_file_content_type: "{{ iso_file_content_type }}"
+              iso_file_name: "{{         iso_file_name }}"
+              iso_url: "{{               iso_url }}"
+
+              raw_info: "{{ proxmox_call.json }}" # orig json proxmox
+
+        - name: STORAGE - DOWNLOAD ISO - PRINT JSON
+          debug:
+            var: storage_download_iso
+
+      when: >
+        not _iso_stat.stat.exists or
+        (iso_checksum is defined and _iso_stat.stat.checksum != iso_checksum)
 
   ####
 
