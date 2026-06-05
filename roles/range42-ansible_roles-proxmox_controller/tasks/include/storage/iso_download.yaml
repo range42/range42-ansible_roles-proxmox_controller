@@ -34,6 +34,15 @@
       changed_when: false
       when: _sha256sums.status | default(0) != 200
 
+    - name: STORAGE - DOWNLOAD ISO - DEBUG sums file content (first 5 lines)
+      ansible.builtin.debug:
+        msg: >-
+          SHA256SUMS status={{ _sha256sums.status | default('n/a') }}
+          SHA512SUMS status={{ _sha512sums.status | default('n/a') }}
+          first 5 lines of fetched content:
+          {{ ((_sha256sums.content if _sha256sums.status | default(0) == 200
+               else _sha512sums.content | default('')).splitlines()[:5]) }}
+
     - name: STORAGE - DOWNLOAD ISO - PARSE remote checksum
       ansible.builtin.set_fact:
         _iso_remote_checksum: >-
@@ -42,8 +51,7 @@
               (_sha256sums.content if _sha256sums.status | default(0) == 200
                else _sha512sums.content | default(''))
               .splitlines()
-              | select('match',
-                  '^[0-9a-fA-F]+\\s+\\*?' ~ (iso_url | basename | regex_escape) ~ '$')
+              | select('search', (iso_url | basename | regex_escape) ~ '$')
               | list
               | first
               | default('')
