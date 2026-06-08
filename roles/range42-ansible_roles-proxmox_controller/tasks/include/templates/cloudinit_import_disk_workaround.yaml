@@ -33,8 +33,8 @@
     # Resize the imported VM disk to the desired spec size.
     # qm resize operates on the disk inside Proxmox storage — it does NOT touch
     # the source cloud image file in /var/lib/vz/template/iso/.
-    - name: RESIZE VM DISK TO {{ vm_disk_size }}
-      shell: qm resize {{ vm_id }} scsi0 {{ vm_disk_size }}
+    - name: RESIZE VM DISK TO {{ vm_disk_size | upper }}
+      shell: qm resize {{ vm_id }} scsi0 {{ vm_disk_size | upper }}
       args:
         executable: /bin/bash
       when: _disk_exists_check.rc != 0
