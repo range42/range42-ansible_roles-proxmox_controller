@@ -30,19 +30,21 @@
         executable: /bin/bash
       when: _disk_exists_check.rc != 0
 
-    # Resize the imported VM disk to the desired spec size.
-    # qm resize operates on the disk inside Proxmox storage — it does NOT touch
-    # the source cloud image file in /var/lib/vz/template/iso/.
-    - name: RESIZE VM DISK TO {{ vm_disk_size | upper }}
-      shell: qm resize {{ vm_id }} scsi0 {{ vm_disk_size | upper }}
-      args:
-        executable: /bin/bash
-      when: _disk_exists_check.rc != 0
-
     #### #### #### #### #### #### #### #### #### #### #### #### #### #### #### #### #### #### #### #### #### #### #### ####
 
     - name: ENABLE SCSI CONTROLLER AND ATTACH DISK
       shell: qm set {{ vm_id }} --scsihw virtio-scsi-pci --scsi0 {{ proxmox_dest_vm_storage_name }}:vm-{{ vm_id }}-disk-0
+      args:
+        executable: /bin/bash
+      when: _disk_exists_check.rc != 0
+
+    # Resize the imported VM disk to the desired spec size.
+    # Must run after ATTACH DISK — qm disk import creates the disk as unused0,
+    # not scsi0; resize would fail with "disk does not exist" if run before attach.
+    # qm resize operates on the disk inside Proxmox storage — it does NOT touch
+    # the source cloud image file in /var/lib/vz/template/iso/.
+    - name: RESIZE VM DISK TO {{ vm_disk_size | upper }}
+      shell: qm resize {{ vm_id }} scsi0 {{ vm_disk_size | upper }}
       args:
         executable: /bin/bash
       when: _disk_exists_check.rc != 0
