@@ -22,6 +22,17 @@
         msg: "VM {{ vm_id }} already has scsi0 disk — skipping import"
       when: _disk_exists_check.rc == 0
 
+    # Check whether the existing scsi0 is already at the target size.
+    # Runs only when scsi0 already exists; gates the resize task so a re-run
+    # can self-heal a disk that was attached but never resized (e.g. left at
+    # cloud-image size after a partial deployment).
+    - name: CHECK DISK SIZE (skip resize if scsi0 already {{ vm_disk_size | upper }})
+      shell: qm config {{ vm_id }} | grep 'scsi0:' | grep -q 'size={{ vm_disk_size | upper }}'
+      register: _disk_size_check
+      failed_when: false
+      changed_when: false
+      when: _disk_exists_check.rc == 0
+
     #### #### #### #### #### #### #### #### #### #### #### #### #### #### #### #### #### #### #### #### #### #### #### ####
 
     - name: QM DISK IMPORT TO {{ vm_id }}
@@ -43,11 +54,12 @@
     # not scsi0; resize would fail with "disk does not exist" if run before attach.
     # qm resize operates on the disk inside Proxmox storage — it does NOT touch
     # the source cloud image file in /var/lib/vz/template/iso/.
+    # Also runs when scsi0 exists but is smaller than target (self-heal path).
     - name: RESIZE VM DISK TO {{ vm_disk_size | upper }}
       shell: qm resize {{ vm_id }} scsi0 {{ vm_disk_size | upper }}
       args:
         executable: /bin/bash
-      when: _disk_exists_check.rc != 0
+      when: _disk_exists_check.rc != 0 or (_disk_size_check.rc | default(0)) != 0
 
     #### #### #### #### #### #### #### #### #### #### #### #### #### #### #### #### #### #### #### #### #### #### #### ####
 
