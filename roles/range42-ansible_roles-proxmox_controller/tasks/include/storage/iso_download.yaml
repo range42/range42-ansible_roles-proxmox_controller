@@ -5,52 +5,163 @@
 
 - block:
     ####
+    #### Step 1: dynamically fetch remote checksum from distro's checksum file
+    #### (SHA256SUMS first, SHA512SUMS as fallback — same base URL as the image)
+    ####
+    #### Note: fetching the sums file from the same server as the image means
+    #### integrity is protected by TLS (HTTPS with valid public cert). This
+    #### detects accidental corruption and stale cached files. A fully compromised
+    #### distro mirror could serve matching image+sums — acceptable risk for
+    #### this project; GPG signature verification would close that gap.
     ####
 
-    - name: Download -  ISO
-      uri:
-        url: "https://{{ proxmox_api_host }}/api2/json/nodes/{{ proxmox_node }}/storage/{{ proxmox_storage }}/download-url"
-        method: POST
-        headers:
-          Authorization: "PVEAPIToken={{ proxmox_api_user }}!{{ proxmox_api_token_id }}={{ proxmox_api_token_secret }}"
-        validate_certs: no
-        body_format: form-urlencoded
-        body:
-          content: "{{   iso_file_content_type }}"
-          filename: "{{  iso_file_name }}"
-          url: "{{       iso_url }}"
-          storage: "{{   proxmox_storage }}"
-          node: "{{      proxmox_node }}"
-          # full: 1
-      register: proxmox_call
+    - name: STORAGE - DOWNLOAD ISO - FETCH SHA256SUMS
+      ansible.builtin.uri:
+        url: "{{ iso_url | dirname }}/SHA256SUMS"
+        method: GET
+        return_content: true
+      register: _sha256sums
+      failed_when: false
+      changed_when: false
+
+    - name: STORAGE - DOWNLOAD ISO - FETCH SHA512SUMS (fallback)
+      ansible.builtin.uri:
+        url: "{{ iso_url | dirname }}/SHA512SUMS"
+        method: GET
+        return_content: true
+      register: _sha512sums
+      failed_when: false
+      changed_when: false
+      when: _sha256sums.status | default(0) != 200
+
+    - name: STORAGE - DOWNLOAD ISO - PARSE remote checksum
+      ansible.builtin.set_fact:
+        _iso_remote_checksum: >-
+          {{
+            (
+              (_sha256sums.content if _sha256sums.status | default(0) == 200
+               else _sha512sums.content | default(''))
+              .splitlines()
+              | select('search', (iso_url | basename | regex_escape) ~ '$')
+              | list
+              | first
+              | default('')
+            ).split() | first | default('')
+          }}
+        _iso_checksum_algorithm: >-
+          {{ 'sha256' if _sha256sums.status | default(0) == 200 else
+             'sha512' if _sha512sums.status | default(0) == 200 else
+             'sha256' }}
+
+    - name: STORAGE - DOWNLOAD ISO - PRINT remote checksum
+      ansible.builtin.debug:
+        msg: >-
+          Remote checksum ({{ _iso_checksum_algorithm }}):
+          {{ _iso_remote_checksum if _iso_remote_checksum else 'not found — will skip verification' }}
 
     ####
+    #### Step 2: check if file already exists on the Proxmox node filesystem
+    #### (compute hash only when we have a remote checksum to compare against)
     ####
-    - name: STORAGE - DOWNLOAD ISO - PRINT proxmox_call
-      debug:
-        var: proxmox_call
 
-    - name: STORAGE - DOWNLOAD ISO - PRINT proxmox_call
-      debug:
-        var: proxmox_call
+    - name: STORAGE - DOWNLOAD ISO - STAT existing file on proxmox node
+      ansible.builtin.stat:
+        path: "/var/lib/vz/template/iso/{{ iso_file_name }}"
+        get_checksum: "{{ _iso_remote_checksum != '' }}"
+        checksum_algorithm: "{{ _iso_checksum_algorithm }}"
+      register: _iso_stat
+      delegate_to: "{{ inventory_hostname }}-cli"
 
-    - name: STORAGE - DOWNLOAD ISO- BUILD JSON
-      set_fact:
-        storage_download_iso:
-          action: "storage_download_iso"
-          source: "proxmox"
-          proxmox_node: "{{ proxmox_node }}"
-          proxmox_storage: "{{ proxmox_storage }}"
+    ####
+    #### Step 3a: file exists + checksum matches → skip
+    ####
 
-          iso_file_content_type: "{{ iso_file_content_type }}"
-          iso_file_name: "{{         iso_file_name }}"
-          iso_url: "{{               iso_url }}"
+    - name: STORAGE - DOWNLOAD ISO - SKIP (file exists, hash matches)
+      ansible.builtin.debug:
+        msg: >-
+          ISO {{ iso_file_name }} already exists with matching
+          {{ _iso_checksum_algorithm }} checksum — skipping download.
+      when:
+        - _iso_stat.stat.exists
+        - _iso_remote_checksum != ''
+        - _iso_stat.stat.checksum == _iso_remote_checksum
 
-          raw_info: "{{ proxmox_call.json }}" # orig json proxmox
+    ####
+    #### Step 3b: file exists + no remote checksum found → skip with warning
+    ####
 
-    - name: STORAGE - DOWNLOAD ISO - PRINT JSON
-      debug:
-        var: storage_download_iso
+    - name: STORAGE - DOWNLOAD ISO - SKIP (file exists, remote checksum unavailable)
+      ansible.builtin.debug:
+        msg: >-
+          ISO {{ iso_file_name }} already exists. Could not retrieve a remote
+          checksum file — skipping download without verification.
+      when:
+        - _iso_stat.stat.exists
+        - _iso_remote_checksum == ''
+
+    ####
+    #### Step 3c: file exists + checksum mismatch → delete stale file
+    ####
+
+    - name: STORAGE - DOWNLOAD ISO - DELETE stale file (hash mismatch)
+      ansible.builtin.file:
+        path: "/var/lib/vz/template/iso/{{ iso_file_name }}"
+        state: absent
+      delegate_to: "{{ inventory_hostname }}-cli"
+      when:
+        - _iso_stat.stat.exists
+        - _iso_remote_checksum != ''
+        - _iso_stat.stat.checksum != _iso_remote_checksum
+
+    ####
+    #### Step 4: download (file absent, or stale file just deleted)
+    #### Passes the remote checksum to Proxmox so it verifies the transfer.
+    ####
+
+    - block:
+        - name: STORAGE - DOWNLOAD ISO - download via Proxmox API
+          uri:
+            url: "https://{{ proxmox_api_host }}/api2/json/nodes/{{ proxmox_node }}/storage/{{ proxmox_storage }}/download-url"
+            method: POST
+            headers:
+              Authorization: "PVEAPIToken={{ proxmox_api_user }}!{{ proxmox_api_token_id }}={{ proxmox_api_token_secret }}"
+            validate_certs: no
+            body_format: form-urlencoded
+            body:
+              content: "{{   iso_file_content_type }}"
+              filename: "{{  iso_file_name }}"
+              url: "{{       iso_url }}"
+              storage: "{{   proxmox_storage }}"
+              node: "{{      proxmox_node }}"
+              checksum: "{{ _iso_remote_checksum if _iso_remote_checksum else omit }}"
+              checksum-algorithm: "{{ _iso_checksum_algorithm if _iso_remote_checksum else omit }}"
+          register: proxmox_call
+
+        - name: STORAGE - DOWNLOAD ISO - PRINT proxmox_call
+          debug:
+            var: proxmox_call
+
+        - name: STORAGE - DOWNLOAD ISO - BUILD JSON
+          set_fact:
+            storage_download_iso:
+              action: "storage_download_iso"
+              source: "proxmox"
+              proxmox_node: "{{ proxmox_node }}"
+              proxmox_storage: "{{ proxmox_storage }}"
+
+              iso_file_content_type: "{{ iso_file_content_type }}"
+              iso_file_name: "{{         iso_file_name }}"
+              iso_url: "{{               iso_url }}"
+
+              raw_info: "{{ proxmox_call.json }}" # orig json proxmox
+
+        - name: STORAGE - DOWNLOAD ISO - PRINT JSON
+          debug:
+            var: storage_download_iso
+
+      when: >
+        not _iso_stat.stat.exists or
+        (_iso_remote_checksum != '' and _iso_stat.stat.checksum != _iso_remote_checksum)
 
   ####
 
