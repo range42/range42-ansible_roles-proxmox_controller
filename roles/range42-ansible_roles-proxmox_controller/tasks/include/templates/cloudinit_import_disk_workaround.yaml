@@ -118,7 +118,7 @@
 #         method: PUT
 #         headers:
 #           Authorization: "PVEAPIToken={{ proxmox_api_user }}!{{ proxmox_api_token_id }}={{ proxmox_api_token_secret }}"
-#         validate_certs: no
+#         validate_certs: "{{ proxmox_api_validate_certs | default(false) }}"
 #         body_format: form-urlencoded
 #         body:
 #           # scsi0: "{{ proxmox_storage }}:vm-{{ vmid }}-disk-0"

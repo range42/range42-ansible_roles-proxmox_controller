@@ -10,7 +10,7 @@
         method: GET
         headers:
           Authorization: "PVEAPIToken={{ proxmox_api_user }}!{{ proxmox_api_token_id }}={{ proxmox_api_token_secret }}"
-        validate_certs: no
+        validate_certs: "{{ proxmox_api_validate_certs | default(false) }}"
         status_code: [200, 500]
       register: _template_check
       failed_when: false
@@ -26,7 +26,7 @@
         method: POST
         headers:
           Authorization: "PVEAPIToken={{ proxmox_api_user }}!{{ proxmox_api_token_id }}={{ proxmox_api_token_secret }}"
-        validate_certs: no
+        validate_certs: "{{ proxmox_api_validate_certs | default(false) }}"
       register: proxmox_call
       when: not (_template_check.status == 200 and (_template_check.json.data.template | default(0) | int) == 1)
 

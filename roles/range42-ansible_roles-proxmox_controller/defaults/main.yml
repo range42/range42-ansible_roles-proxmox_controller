@@ -1,1 +1,19 @@
 ---
+
+################################################################################
+# range42-ansible_roles-proxmox_controller - default variables
+################################################################################
+
+# TLS certificate validation for every call to the Proxmox API.
+#
+# Declared here so the knob is discoverable when this role is used on its own,
+# which is how the devkit scripts drive it. Every uri task reads it as
+#   validate_certs: "{{ proxmox_api_validate_certs | default(false) }}"
+# so the inline default keeps working even if this file is not loaded.
+#
+# false by default because a Proxmox install ships a self-signed certificate.
+# Set it to true once the node presents a certificate your controller trusts,
+# for instance after range42 installs the Proxmox CA in the system trust store.
+#
+# override in inventories/<codename>/group_vars/all/vars.yml: proxmox_api_validate_certs: true
+proxmox_api_validate_certs: false

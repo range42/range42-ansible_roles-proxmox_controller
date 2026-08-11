@@ -13,7 +13,7 @@
         method: POST
         headers:
           Authorization: "PVEAPIToken={{ proxmox_api_user }}!{{ proxmox_api_token_id }}={{ proxmox_api_token_secret }}"
-        validate_certs: no
+        validate_certs: "{{ proxmox_api_validate_certs | default(false) }}"
       register: lxc_pause_output
 
     - name: LXC PAUSE - PRINT lxc_pause_output
@@ -29,7 +29,7 @@
         method: GET
         headers:
           Authorization: "PVEAPIToken={{ proxmox_api_user }}!{{ proxmox_api_token_id }}={{ proxmox_api_token_secret }}"
-        validate_certs: no
+        validate_certs: "{{ proxmox_api_validate_certs | default(false) }}"
       register: proxmox_call
 
     ####

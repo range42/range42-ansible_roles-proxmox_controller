@@ -11,7 +11,7 @@
         method: GET
         headers:
           Authorization: "PVEAPIToken={{ proxmox_api_user }}!{{ proxmox_api_token_id }}={{ proxmox_api_token_secret }}"
-        validate_certs: no
+        validate_certs: "{{ proxmox_api_validate_certs | default(false) }}"
         status_code: [200, 500]
       register: _vm_exists_check
       failed_when: false
@@ -50,7 +50,7 @@
           # net0: "virtio,bridge=vmbr0"
           net0: "virtio,bridge={{ vm_net_virtio_bridge | default('vmbr0') }}"
 
-        validate_certs: no
+        validate_certs: "{{ proxmox_api_validate_certs | default(false) }}"
       register: proxmox_call
       when: _vm_exists_check.status != 200
 

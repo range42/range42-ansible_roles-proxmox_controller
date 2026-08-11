@@ -19,7 +19,7 @@
           action: "ACCEPT"
           proto: "tcp"
           dport: "22"
-        validate_certs: no
+        validate_certs: "{{ proxmox_api_validate_certs | default(false) }}"
 
     ####
     ####
@@ -34,7 +34,7 @@
         body:
           type: "in"
           action: "DROP"
-        validate_certs: no
+        validate_certs: "{{ proxmox_api_validate_certs | default(false) }}"
 
   ####
   ####

@@ -17,7 +17,7 @@
         body:
           snapname: "{{ lxc_snapshot_name }}"
           description: "{{ lxc_snapshot_description }}"
-        validate_certs: no
+        validate_certs: "{{ proxmox_api_validate_certs | default(false) }}"
       register: proxmox_call
 
     - name: SNAPSHOT LXC - PRINT proxmox_call
