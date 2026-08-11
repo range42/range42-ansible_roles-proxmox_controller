@@ -1,0 +1,79 @@
+---
+##
+## SDN - CLUSTER level (not node level).
+##
+## POST /cluster/sdn/zones
+##
+## Required : sdn_zone, and type which is pinned to "simple" because that is the only
+## zone type this project uses (a simple zone is host local, no VLAN, no VXLAN).
+##
+## IPAM is DELIBERATELY not sent. It is optional in the API and its adoption is
+## deferred, so passing it here would commit the project to an IPAM before the
+## decision is made. Add it the day that decision lands, not before.
+##
+## The created zone is PENDING until an apply runs. This action does not apply : the
+## apply is asynchronous, returns a UPID and needs polling, so it is its own action.
+## A read right after this one shows the zone with zone_pending set.
+##
+
+- block:
+    ####
+    ####
+
+    - name: NETWORK - CLUSTER - ADD SDN ZONE
+      uri:
+        url: "https://{{ proxmox_api_host }}/api2/json/cluster/sdn/zones"
+        method: POST
+        headers:
+          Authorization: "PVEAPIToken={{ proxmox_api_user }}!{{ proxmox_api_token_id }}={{ proxmox_api_token_secret }}"
+        body_format: json
+        body:
+          zone: "{{ sdn_zone }}"
+          type: "{{ sdn_zone_type | default('simple') }}"
+
+          nodes: "{{ sdn_zone_nodes | default(omit) }}"
+          mtu: "{{ sdn_zone_mtu | default(omit) }}"
+          dhcp: "{{ sdn_zone_dhcp | default(omit) }}"
+
+        validate_certs: "{{ proxmox_api_validate_certs | default(false) }}"
+      register: proxmox_call
+
+    ####
+    ####
+
+    - name: NETWORK - CLUSTER - ADD SDN ZONE - proxmox_call
+      debug:
+        var: proxmox_call
+
+    ####
+    ####
+
+    - name: NETWORK - CLUSTER - ADD SDN ZONE - BUILD JSON
+      set_fact:
+        network_add_sdn_zone:
+          action: "network_add_sdn_zone"
+          source: "proxmox"
+          proxmox_node: "{{ proxmox_node }}"
+
+          zone: "{{ sdn_zone }}"
+          zone_type: "{{ sdn_zone_type | default('simple') }}"
+          zone_nodes: "{{ sdn_zone_nodes | default(omit) }}"
+          zone_mtu: "{{ sdn_zone_mtu | default(omit) }}"
+          zone_dhcp: "{{ sdn_zone_dhcp | default(omit) }}"
+
+    ####
+    ####
+    ## This debug task is NOT cosmetic : the devkit helper extracts its payload with
+    ##   select(type=="object" and has($action)) | .[$action]
+    ## so a JSON key named EXACTLY like the action must appear in the task results.
+    ## Without it the devkit returns an empty stream and exits 0 (silent failure).
+    ####
+
+    - name: NETWORK - CLUSTER - ADD SDN ZONE - PRINT JSON
+      debug:
+        var: network_add_sdn_zone
+
+  ####
+  ####
+
+  when: proxmox_vm_action == "network_add_sdn_zone"

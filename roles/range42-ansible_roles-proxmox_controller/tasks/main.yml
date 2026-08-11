@@ -306,6 +306,18 @@
   ansible.builtin.include_tasks: "./include/network/list_network_sdn_subnets.yaml"
   when: proxmox_vm_action == "network_list_sdn_subnets"
 
+- name: INCLUDE - ./include/network/add_network_sdn_zone.yaml
+  ansible.builtin.include_tasks: "./include/network/add_network_sdn_zone.yaml"
+  when: proxmox_vm_action == "network_add_sdn_zone"
+
+- name: INCLUDE - ./include/network/add_network_sdn_vnet.yaml
+  ansible.builtin.include_tasks: "./include/network/add_network_sdn_vnet.yaml"
+  when: proxmox_vm_action == "network_add_sdn_vnet"
+
+- name: INCLUDE - ./include/network/add_network_sdn_subnet.yaml
+  ansible.builtin.include_tasks: "./include/network/add_network_sdn_subnet.yaml"
+  when: proxmox_vm_action == "network_add_sdn_subnet"
+
 #### #### #### #### #### #### #### #### #### #### #### #### #### #### #### ####
 #### #### #### #### #### #### #### #### #### #### #### #### #### #### #### ####
 #### #### #### #### #### #### #### #### #### #### #### #### #### #### #### ####

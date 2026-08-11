@@ -139,6 +139,9 @@ right task file:
 | `network_list_sdn_zones` | List SDN zones at the cluster level |
 | `network_list_sdn_vnets` | List SDN vnets at the cluster level |
 | `network_list_sdn_subnets` | List SDN subnets of every vnet, cluster wide |
+| `network_add_sdn_zone` | Create an SDN zone at the cluster level |
+| `network_add_sdn_vnet` | Create an SDN vnet in a zone |
+| `network_add_sdn_subnet` | Create an SDN subnet in a vnet |
 
 ### Firewall (`firewall_*`)
 

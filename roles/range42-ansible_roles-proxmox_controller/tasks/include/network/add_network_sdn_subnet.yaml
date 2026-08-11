@@ -1,0 +1,93 @@
+---
+##
+## SDN - CLUSTER level (not node level).
+##
+## POST /cluster/sdn/vnets/{vnet}/subnets
+##
+## Required : sdn_vnet (in the URL, must already exist) and sdn_subnet, plus type which
+## is pinned to "subnet".
+##
+## >>> sdn_subnet IS THE CIDR HERE, NOT THE ID <<<
+## On creation the API expects the network, for instance 192.168.199.0/24. It then
+## builds the object id itself as <zone>-<network>-<mask>, for instance
+## r42test-192.168.199.0-24, and THAT id is what an update or a delete has to use.
+## Passing an id here, or a CIDR to a delete, both fail. The read action returns the id
+## in `subnet` and the network in `subnet_cidr`, so the two are never confused.
+##
+## sdn_subnet_snat=1 is what gives the guests outbound internet, and Proxmox writes the
+## whole plumbing itself : the .1 gateway on the vnet interface, ip-forward, and a SNAT
+## rule whose outbound interface is auto detected from the default route. Nothing has
+## to be added by hand.
+##
+## The created subnet is PENDING until an apply runs. This action does not apply : the
+## apply is asynchronous, returns a UPID and needs polling, so it is its own action.
+##
+## Beware when applying repeatedly : an apply is not idempotent and adds one SNAT rule
+## per active subnet every time, which is what the norm_snat primitive exists to
+## reconcile.
+##
+
+- block:
+    ####
+    ####
+
+    - name: NETWORK - CLUSTER - ADD SDN SUBNET
+      uri:
+        url: "https://{{ proxmox_api_host }}/api2/json/cluster/sdn/vnets/{{ sdn_vnet }}/subnets"
+        method: POST
+        headers:
+          Authorization: "PVEAPIToken={{ proxmox_api_user }}!{{ proxmox_api_token_id }}={{ proxmox_api_token_secret }}"
+        body_format: json
+        body:
+          subnet: "{{ sdn_subnet }}"
+          type: "{{ sdn_subnet_type | default('subnet') }}"
+
+          gateway: "{{ sdn_subnet_gateway | default(omit) }}"
+          snat: "{{ sdn_subnet_snat | default(omit) }}"
+          dhcp-range: "{{ sdn_subnet_dhcp_range | default(omit) }}"
+          dhcp-dns-server: "{{ sdn_subnet_dhcp_dns_server | default(omit) }}"
+
+        validate_certs: "{{ proxmox_api_validate_certs | default(false) }}"
+      register: proxmox_call
+
+    ####
+    ####
+
+    - name: NETWORK - CLUSTER - ADD SDN SUBNET - proxmox_call
+      debug:
+        var: proxmox_call
+
+    ####
+    ####
+
+    - name: NETWORK - CLUSTER - ADD SDN SUBNET - BUILD JSON
+      set_fact:
+        network_add_sdn_subnet:
+          action: "network_add_sdn_subnet"
+          source: "proxmox"
+          proxmox_node: "{{ proxmox_node }}"
+
+          subnet_cidr: "{{ sdn_subnet }}"
+          subnet_vnet: "{{ sdn_vnet }}"
+          subnet_type: "{{ sdn_subnet_type | default('subnet') }}"
+          subnet_gateway: "{{ sdn_subnet_gateway | default(omit) }}"
+          subnet_snat: "{{ sdn_subnet_snat | default(omit) }}"
+          subnet_dhcp_range: "{{ sdn_subnet_dhcp_range | default(omit) }}"
+          subnet_dhcp_dns_server: "{{ sdn_subnet_dhcp_dns_server | default(omit) }}"
+
+    ####
+    ####
+    ## This debug task is NOT cosmetic : the devkit helper extracts its payload with
+    ##   select(type=="object" and has($action)) | .[$action]
+    ## so a JSON key named EXACTLY like the action must appear in the task results.
+    ## Without it the devkit returns an empty stream and exits 0 (silent failure).
+    ####
+
+    - name: NETWORK - CLUSTER - ADD SDN SUBNET - PRINT JSON
+      debug:
+        var: network_add_sdn_subnet
+
+  ####
+  ####
+
+  when: proxmox_vm_action == "network_add_sdn_subnet"
