@@ -318,6 +318,20 @@
   ansible.builtin.include_tasks: "./include/network/add_network_sdn_subnet.yaml"
   when: proxmox_vm_action == "network_add_sdn_subnet"
 
+#### SDN - cluster level - suppression, dans cet ordre impose : subnet -> vnet -> zone
+
+- name: INCLUDE - ./include/network/delete_network_sdn_subnet.yaml
+  ansible.builtin.include_tasks: "./include/network/delete_network_sdn_subnet.yaml"
+  when: proxmox_vm_action == "network_delete_sdn_subnet"
+
+- name: INCLUDE - ./include/network/delete_network_sdn_vnet.yaml
+  ansible.builtin.include_tasks: "./include/network/delete_network_sdn_vnet.yaml"
+  when: proxmox_vm_action == "network_delete_sdn_vnet"
+
+- name: INCLUDE - ./include/network/delete_network_sdn_zone.yaml
+  ansible.builtin.include_tasks: "./include/network/delete_network_sdn_zone.yaml"
+  when: proxmox_vm_action == "network_delete_sdn_zone"
+
 - name: INCLUDE - ./include/network/apply_network_sdn.yaml
   ansible.builtin.include_tasks: "./include/network/apply_network_sdn.yaml"
   when: proxmox_vm_action == "network_apply_sdn"

@@ -1,0 +1,69 @@
+---
+##
+## SDN - CLUSTER level (not node level).
+##
+## DELETE /cluster/sdn/zones/{zone}
+##
+## LAST of the three deletions. The order is imposed by Proxmox : a vnet that still
+## carries a subnet cannot be removed, and neither can a zone that still carries a vnet.
+##
+##     subnet  ->  vnet  ->  zone  ->  apply
+##
+## So this action fails as long as the zone has vnets left. That failure is a correct
+## answer, not a defect : it says the previous step has not been done.
+##
+## A zone is shared between scenarios, so removing it is a far heavier act than removing
+## a vnet. It is the right thing when tearing down a whole test cluster, and the wrong
+## thing when retiring a single scenario, which only needs its vnet gone.
+##
+## The deletion is PENDING until an apply runs, exactly like a creation.
+##
+
+- block:
+    ####
+    ####
+
+    - name: NETWORK - CLUSTER - DELETE SDN ZONE
+      uri:
+        url: "https://{{ proxmox_api_host }}/api2/json/cluster/sdn/zones/{{ sdn_zone }}"
+        method: DELETE
+        headers:
+          Authorization: "PVEAPIToken={{ proxmox_api_user }}!{{ proxmox_api_token_id }}={{ proxmox_api_token_secret }}"
+        validate_certs: "{{ proxmox_api_validate_certs | default(false) }}"
+      register: proxmox_call
+
+    ####
+    ####
+
+    - name: NETWORK - CLUSTER - DELETE SDN ZONE - proxmox_call
+      debug:
+        var: proxmox_call
+
+    ####
+    ####
+
+    - name: NETWORK - CLUSTER - DELETE SDN ZONE - BUILD JSON
+      set_fact:
+        network_delete_sdn_zone:
+          action: "network_delete_sdn_zone"
+          source: "proxmox"
+          proxmox_node: "{{ proxmox_node }}"
+
+          zone: "{{ sdn_zone }}"
+
+    ####
+    ####
+    ## This debug task is NOT cosmetic : the devkit helper extracts its payload with
+    ##   select(type=="object" and has($action)) | .[$action]
+    ## so a JSON key named EXACTLY like the action must appear in the task results.
+    ## Without it the devkit returns an empty stream and exits 0 (silent failure).
+    ####
+
+    - name: NETWORK - CLUSTER - DELETE SDN ZONE - PRINT JSON
+      debug:
+        var: network_delete_sdn_zone
+
+  ####
+  ####
+
+  when: proxmox_vm_action == "network_delete_sdn_zone"

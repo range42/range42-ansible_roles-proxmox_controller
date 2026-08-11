@@ -142,6 +142,9 @@ right task file:
 | `network_add_sdn_zone` | Create an SDN zone at the cluster level |
 | `network_add_sdn_vnet` | Create an SDN vnet in a zone |
 | `network_add_sdn_subnet` | Create an SDN subnet in a vnet |
+| `network_delete_sdn_subnet` | Delete an SDN subnet, by its id, from its vnet |
+| `network_delete_sdn_vnet` | Delete an SDN vnet, once it has no subnet left |
+| `network_delete_sdn_zone` | Delete an SDN zone, once it has no vnet left |
 | `network_apply_sdn` | Apply the pending SDN configuration, waiting for the task |
 | `network_delete_snat_rules` | Delete the surplus live SNAT rules of one subnet |
 

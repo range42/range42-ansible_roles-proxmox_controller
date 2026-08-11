@@ -1,0 +1,92 @@
+---
+##
+## SDN - CLUSTER level (not node level).
+##
+## DELETE /cluster/sdn/vnets/{vnet}/subnets/{subnet_id}
+##
+## FIRST of the three deletions. The order is imposed by Proxmox : a vnet that still
+## carries a subnet cannot be removed, and neither can a zone that still carries a vnet.
+##
+##     subnet  ->  vnet  ->  zone  ->  apply
+##
+## Each action removes exactly ONE object ; sequencing them is the caller's job, which is
+## the composite devkit or the bundle.
+##
+## >>> sdn_subnet_id IS THE ID, NOT THE CIDR <<<
+## Creation takes the network (192.168.199.0/24) and Proxmox derives the id from it as
+## <zone>-<network>-<mask>, for instance r42test-192.168.199.0-24. Only that id addresses
+## the object afterwards. The two are deliberately different variables, sdn_subnet on the
+## way in and sdn_subnet_id on the way out, so that a CIDR cannot be passed here by
+## reflex. The assert below refuses anything containing a slash for that reason, and the
+## read action hands the right value in its `subnet` field.
+##
+## The deletion is PENDING until an apply runs, exactly like a creation. Until then the
+## live bridge and its SNAT rule are still there.
+##
+
+- block:
+    ####
+    ####
+
+    - name: NETWORK - CLUSTER - DELETE SDN SUBNET - CHECK AN ID WAS GIVEN, NOT A CIDR
+      ansible.builtin.assert:
+        that:
+          - sdn_subnet_id is defined
+          - sdn_subnet_id is string
+          - sdn_subnet_id | length > 0
+          - "'/' not in sdn_subnet_id"
+        fail_msg: >-
+          sdn_subnet_id must be the subnet ID as Proxmox built it,
+          <zone>-<network>-<mask>, for instance r42test-192.168.199.0-24. A CIDR is not
+          accepted here : the read action returns the id in its `subnet` field and the
+          network in `subnet_cidr`. Got: {{ sdn_subnet_id | default('<undefined>') }}
+        success_msg: "deleting subnet {{ sdn_subnet_id }} from vnet {{ sdn_vnet | default('<undefined>') }}"
+
+    ####
+    ####
+
+    - name: NETWORK - CLUSTER - DELETE SDN SUBNET
+      uri:
+        url: "https://{{ proxmox_api_host }}/api2/json/cluster/sdn/vnets/{{ sdn_vnet }}/subnets/{{ sdn_subnet_id }}"
+        method: DELETE
+        headers:
+          Authorization: "PVEAPIToken={{ proxmox_api_user }}!{{ proxmox_api_token_id }}={{ proxmox_api_token_secret }}"
+        validate_certs: "{{ proxmox_api_validate_certs | default(false) }}"
+      register: proxmox_call
+
+    ####
+    ####
+
+    - name: NETWORK - CLUSTER - DELETE SDN SUBNET - proxmox_call
+      debug:
+        var: proxmox_call
+
+    ####
+    ####
+
+    - name: NETWORK - CLUSTER - DELETE SDN SUBNET - BUILD JSON
+      set_fact:
+        network_delete_sdn_subnet:
+          action: "network_delete_sdn_subnet"
+          source: "proxmox"
+          proxmox_node: "{{ proxmox_node }}"
+
+          subnet: "{{ sdn_subnet_id }}"
+          subnet_vnet: "{{ sdn_vnet }}"
+
+    ####
+    ####
+    ## This debug task is NOT cosmetic : the devkit helper extracts its payload with
+    ##   select(type=="object" and has($action)) | .[$action]
+    ## so a JSON key named EXACTLY like the action must appear in the task results.
+    ## Without it the devkit returns an empty stream and exits 0 (silent failure).
+    ####
+
+    - name: NETWORK - CLUSTER - DELETE SDN SUBNET - PRINT JSON
+      debug:
+        var: network_delete_sdn_subnet
+
+  ####
+  ####
+
+  when: proxmox_vm_action == "network_delete_sdn_subnet"
