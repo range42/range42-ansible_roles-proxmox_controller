@@ -73,6 +73,14 @@
 
           subnet: "{{ sdn_subnet_id }}"
           subnet_vnet: "{{ sdn_vnet }}"
+          ## Emitted so the JSON line is self sufficient for piping, same reasoning as in
+          ## update_network_sdn_subnet.yaml : rebuilt from the id, which Proxmox forms as
+          ## <zone>-<network>-<mask>, read from the RIGHT so a dashed zone name is safe.
+          ## Note that the VNET is NOT recoverable this way : the id carries the zone, not
+          ## the vnet, which is why a caller holding only an id still has to read the list.
+          subnet_cidr: >-
+            {{ (sdn_subnet_id.split('-')[-2] ~ '/' ~ sdn_subnet_id.split('-')[-1])
+               if (sdn_subnet_id.split('-') | length >= 3) else omit }}
 
     ####
     ####

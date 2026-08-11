@@ -59,6 +59,45 @@
 
     ####
     ####
+    ## READ BACK THE ID PROXMOX JUST BUILT.
+    ##
+    ## The creation takes the network and Proxmox derives the id from it as
+    ## <zone>-<network>-<mask>. This action cannot rebuild that id : it receives the vnet,
+    ## never the zone. Without reading it back, a caller who has just created a subnet has
+    ## nothing to address it with, and every chained update or delete has to go fetch the
+    ## list first.
+    ##
+    ## Matching is done on the id SUFFIX rather than on the `cidr` field, because cidr is
+    ## optional in the response while the id always ends with <network>-<mask>. One
+    ## criterion, no dependency on an optional field.
+    ##
+    ## Not found leaves the key absent rather than wrong. That happens if a future Proxmox
+    ## release stops listing pending objects, and an empty value says so honestly.
+    ####
+
+    - name: NETWORK - CLUSTER - ADD SDN SUBNET - READ BACK THE GENERATED ID
+      uri:
+        url: "https://{{ proxmox_api_host }}/api2/json/cluster/sdn/vnets/{{ sdn_vnet }}/subnets"
+        method: GET
+        headers:
+          Authorization: "PVEAPIToken={{ proxmox_api_user }}!{{ proxmox_api_token_id }}={{ proxmox_api_token_secret }}"
+        validate_certs: "{{ proxmox_api_validate_certs | default(false) }}"
+      register: proxmox_call_readback
+
+    - name: NETWORK - CLUSTER - ADD SDN SUBNET - EXTRACT THE GENERATED ID
+      set_fact:
+        _sdn_subnet_id_readback: >-
+          {%- set want = sdn_subnet | replace('/', '-') -%}
+          {%- set out = [] -%}
+          {%- for s in (proxmox_call_readback.json.data | default([], true)) -%}
+          {%-   if s.subnet is defined and s.subnet.endswith(want) -%}
+          {%-     set _ = out.append(s.subnet) -%}
+          {%-   endif -%}
+          {%- endfor -%}
+          {{ out | first | default('') }}
+
+    ####
+    ####
 
     - name: NETWORK - CLUSTER - ADD SDN SUBNET - BUILD JSON
       set_fact:
@@ -67,6 +106,11 @@
           source: "proxmox"
           proxmox_node: "{{ proxmox_node }}"
 
+          ## The id first, so the JSON line can address the object it just created and be
+          ## piped straight into an update, a delete or the outgoing nat toggle.
+          subnet: >-
+            {{ _sdn_subnet_id_readback
+               if (_sdn_subnet_id_readback | default('') | length > 0) else omit }}
           subnet_cidr: "{{ sdn_subnet }}"
           subnet_vnet: "{{ sdn_vnet }}"
           subnet_type: "{{ sdn_subnet_type | default('subnet') }}"

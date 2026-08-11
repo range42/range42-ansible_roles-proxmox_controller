@@ -85,6 +85,15 @@
 
           subnet: "{{ sdn_subnet_id }}"
           subnet_vnet: "{{ sdn_vnet }}"
+          ## Emitted so the JSON line is self sufficient for piping : the SNAT
+          ## reconciliation downstream needs the CIDR, not the id, and having to fetch it
+          ## again to chain two steps is how a step ends up skipped.
+          ## Rebuilt from the id, which Proxmox forms as <zone>-<network>-<mask>. Read
+          ## from the RIGHT so a zone name containing dashes stays parsed correctly, and
+          ## left empty rather than wrong if the id has too few fields.
+          subnet_cidr: >-
+            {{ (sdn_subnet_id.split('-')[-2] ~ '/' ~ sdn_subnet_id.split('-')[-1])
+               if (sdn_subnet_id.split('-') | length >= 3) else omit }}
           subnet_snat: "{{ sdn_subnet_snat | default(omit) }}"
           subnet_gateway: "{{ sdn_subnet_gateway | default(omit) }}"
           subnet_dhcp_range: "{{ sdn_subnet_dhcp_range | default(omit) }}"
