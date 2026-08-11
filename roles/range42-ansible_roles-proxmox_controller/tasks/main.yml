@@ -318,6 +318,10 @@
   ansible.builtin.include_tasks: "./include/network/add_network_sdn_subnet.yaml"
   when: proxmox_vm_action == "network_add_sdn_subnet"
 
+- name: INCLUDE - ./include/network/delete_network_snat_rules.yaml
+  ansible.builtin.include_tasks: "./include/network/delete_network_snat_rules.yaml"
+  when: proxmox_vm_action == "network_delete_snat_rules"
+
 #### #### #### #### #### #### #### #### #### #### #### #### #### #### #### ####
 #### #### #### #### #### #### #### #### #### #### #### #### #### #### #### ####
 #### #### #### #### #### #### #### #### #### #### #### #### #### #### #### ####
