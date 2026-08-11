@@ -137,6 +137,8 @@ right task file:
 | `network_add_interfaces_node` | Add interface to a node |
 | `network_delete_interfaces_node` | Delete interface from a node |
 | `network_list_sdn_zones` | List SDN zones at the cluster level |
+| `network_list_sdn_vnets` | List SDN vnets at the cluster level |
+| `network_list_sdn_subnets` | List SDN subnets of every vnet, cluster wide |
 
 ### Firewall (`firewall_*`)
 

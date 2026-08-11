@@ -1,0 +1,74 @@
+---
+##
+## SDN - CLUSTER level (not node level).
+##
+## Vnets are declared once for the whole cluster, exactly like zones, so this is a
+## flat GET on /cluster/sdn/vnets with no node in the URL.
+##
+## Second of the three reads the SDN bundle needs to diff the declared state against
+## the live one before applying anything (zones, vnets, subnets).
+##
+
+- block:
+    ####
+    ####
+
+    - name: NETWORK - CLUSTER - LIST SDN VNETS
+      uri:
+        url: "https://{{ proxmox_api_host }}/api2/json/cluster/sdn/vnets"
+        method: GET
+        headers:
+          Authorization: "PVEAPIToken={{ proxmox_api_user }}!{{ proxmox_api_token_id }}={{ proxmox_api_token_secret }}"
+        validate_certs: "{{ proxmox_api_validate_certs | default(false) }}"
+      register: proxmox_call
+
+    ####
+    ####
+
+    - name: NETWORK - CLUSTER - LIST SDN VNETS - proxmox_call
+      debug:
+        var: proxmox_call
+
+    ####
+    ####
+
+    - name: NETWORK - CLUSTER - BUILD JSON WITH SDN VNETS
+      set_fact:
+        network_list_sdn_vnets: >-
+          {%- set out = [] -%}
+          {%- for item in proxmox_call.json.data -%}
+          {%-   set _ = out.append({
+                'action':              "network_list_sdn_vnets",
+                'source':              "proxmox",
+                'proxmox_node':        proxmox_node,
+
+                'vnet':                item.vnet,
+                'vnet_zone':           (item.zone          if (item.zone          is defined) else omit),
+                'vnet_alias':          (item.alias         if (item.alias         is defined) else omit),
+                'vnet_tag':            (item.tag           if (item.tag           is defined) else omit),
+                'vnet_vlanaware':      (item.vlanaware     if (item.vlanaware     is defined) else omit),
+                'vnet_isolate_ports':  (item['isolate-ports'] if (item['isolate-ports'] is defined) else omit),
+                'vnet_pending':        (item.pending       if (item.pending       is defined) else omit),
+                'vnet_state':          (item.state         if (item.state         is defined) else omit)
+              }) -%}
+          {%- endfor -%}
+          {{ out }}
+
+      when: proxmox_vm_action == "network_list_sdn_vnets"
+
+    ####
+    ####
+    ## This debug task is NOT cosmetic : the devkit helper extracts its payload with
+    ##   select(type=="object" and has($action)) | .[$action]
+    ## so a JSON key named EXACTLY like the action must appear in the task results.
+    ## Without it the devkit returns an empty stream and exits 0 (silent failure).
+    ####
+
+    - name: NETWORK - CLUSTER - LIST SDN VNETS - PRINT JSON
+      debug:
+        var: network_list_sdn_vnets
+
+  ####
+  ####
+
+  when: proxmox_vm_action == "network_list_sdn_vnets"

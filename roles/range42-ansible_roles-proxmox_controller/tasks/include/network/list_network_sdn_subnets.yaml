@@ -1,0 +1,109 @@
+---
+##
+## SDN - CLUSTER level (not node level).
+##
+## Subnets are the ONE SDN object with no flat cluster endpoint : the API only exposes
+## them per vnet, as GET /cluster/sdn/vnets/{vnet}/subnets. The vnets are therefore
+## enumerated first and the subnets collected in a loop, so that a single call returns
+## the whole cluster view. That view is what the SDN bundle diffs against the declared
+## state, so a per-vnet answer would not be enough.
+##
+## Filtering stays the devkit's job, as it is for zones and vnets : this action always
+## returns everything.
+##
+## Third of the three reads the SDN bundle needs (zones, vnets, subnets).
+##
+
+- block:
+    ####
+    ####
+    ## The enumeration is a means, not the answer : its register is deliberately named
+    ## apart so that proxmox_call keeps holding the subnets, as every other action does.
+    ####
+
+    - name: NETWORK - CLUSTER - LIST SDN VNETS TO ENUMERATE THEIR SUBNETS
+      uri:
+        url: "https://{{ proxmox_api_host }}/api2/json/cluster/sdn/vnets"
+        method: GET
+        headers:
+          Authorization: "PVEAPIToken={{ proxmox_api_user }}!{{ proxmox_api_token_id }}={{ proxmox_api_token_secret }}"
+        validate_certs: "{{ proxmox_api_validate_certs | default(false) }}"
+      register: proxmox_call_vnets
+
+    ####
+    ####
+    ## A cluster with no vnet yields an empty loop, hence an empty result set, which is
+    ## the correct answer rather than a failure.
+    ####
+
+    - name: NETWORK - CLUSTER - LIST SDN SUBNETS PER VNET
+      uri:
+        url: "https://{{ proxmox_api_host }}/api2/json/cluster/sdn/vnets/{{ item.vnet }}/subnets"
+        method: GET
+        headers:
+          Authorization: "PVEAPIToken={{ proxmox_api_user }}!{{ proxmox_api_token_id }}={{ proxmox_api_token_secret }}"
+        validate_certs: "{{ proxmox_api_validate_certs | default(false) }}"
+      register: proxmox_call
+      loop: "{{ proxmox_call_vnets.json.data | default([], true) }}"
+      loop_control:
+        label: "{{ item.vnet }}"
+
+    ####
+    ####
+
+    - name: NETWORK - CLUSTER - LIST SDN SUBNETS - proxmox_call
+      debug:
+        var: proxmox_call
+
+    ####
+    ####
+    ## Two nested loops : one over the per-vnet calls, one over the subnets each
+    ## returned. vnet_subnet comes from the loop item rather than from the payload,
+    ## since the owning vnet is known for certain on that side.
+    ####
+
+    - name: NETWORK - CLUSTER - BUILD JSON WITH SDN SUBNETS
+      set_fact:
+        network_list_sdn_subnets: >-
+          {%- set out = [] -%}
+          {%- for call in (proxmox_call.results | default([], true)) -%}
+          {%-   for item in (call.json.data | default([], true)) -%}
+          {%-     set _ = out.append({
+                  'action':                  "network_list_sdn_subnets",
+                  'source':                  "proxmox",
+                  'proxmox_node':            proxmox_node,
+
+                  'subnet':                  item.subnet,
+                  'subnet_vnet':             call.item.vnet,
+                  'subnet_cidr':             (item.cidr    if (item.cidr    is defined) else omit),
+                  'subnet_type':             (item.type    if (item.type    is defined) else omit),
+                  'subnet_zone':             (item.zone    if (item.zone    is defined) else omit),
+                  'subnet_gateway':          (item.gateway if (item.gateway is defined) else omit),
+                  'subnet_snat':             (item.snat    if (item.snat    is defined) else omit),
+                  'subnet_dhcp_range':       (item['dhcp-range']      if (item['dhcp-range']      is defined) else omit),
+                  'subnet_dhcp_dns_server':  (item['dhcp-dns-server'] if (item['dhcp-dns-server'] is defined) else omit),
+                  'subnet_pending':          (item.pending if (item.pending is defined) else omit),
+                  'subnet_state':            (item.state   if (item.state   is defined) else omit)
+                }) -%}
+          {%-   endfor -%}
+          {%- endfor -%}
+          {{ out }}
+
+      when: proxmox_vm_action == "network_list_sdn_subnets"
+
+    ####
+    ####
+    ## This debug task is NOT cosmetic : the devkit helper extracts its payload with
+    ##   select(type=="object" and has($action)) | .[$action]
+    ## so a JSON key named EXACTLY like the action must appear in the task results.
+    ## Without it the devkit returns an empty stream and exits 0 (silent failure).
+    ####
+
+    - name: NETWORK - CLUSTER - LIST SDN SUBNETS - PRINT JSON
+      debug:
+        var: network_list_sdn_subnets
+
+  ####
+  ####
+
+  when: proxmox_vm_action == "network_list_sdn_subnets"
