@@ -142,6 +142,7 @@ right task file:
 | `network_add_sdn_zone` | Create an SDN zone at the cluster level |
 | `network_add_sdn_vnet` | Create an SDN vnet in a zone |
 | `network_add_sdn_subnet` | Create an SDN subnet in a vnet |
+| `network_update_sdn_subnet` | Update an SDN subnet by its id, the snat toggle |
 | `network_delete_sdn_subnet` | Delete an SDN subnet, by its id, from its vnet |
 | `network_delete_sdn_vnet` | Delete an SDN vnet, once it has no subnet left |
 | `network_delete_sdn_zone` | Delete an SDN zone, once it has no vnet left |
@@ -156,6 +157,8 @@ right task file:
 | `firewall_dc_disable` | Disable firewall at datacenter level |
 | `firewall_node_enable` | Enable firewall at node level |
 | `firewall_node_disable` | Disable firewall at node level |
+| `firewall_node_apply_iptables_rule` | Apply one firewall rule at node level |
+| `firewall_node_enable_management_access` | Anti-lockout, accept the API port and ssh before enabling |
 | `firewall_vm_enable` | Enable firewall on a VM |
 | `firewall_vm_disable` | Disable firewall on a VM |
 | `firewall_vm_apply_iptables_rule` | Apply iptables rule to a VM |
