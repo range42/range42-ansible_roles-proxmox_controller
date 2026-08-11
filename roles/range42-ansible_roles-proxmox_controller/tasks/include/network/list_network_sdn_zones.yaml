@@ -1,0 +1,75 @@
+---
+##
+## SDN - CLUSTER level (not node level).
+##
+## The SDN configuration is cluster-wide : zones, vnets and subnets are declared
+## once for the whole cluster. The node-level endpoint (/nodes/{node}/sdn/zones)
+## only reports the zones as seen by one node and is NOT the source of truth.
+##
+## This action is the GET the SDN bundle needs to diff the declared state against
+## the live one before applying anything.
+##
+
+- block:
+    ####
+    ####
+
+    - name: NETWORK - CLUSTER - LIST SDN ZONES
+      uri:
+        url: "https://{{ proxmox_api_host }}/api2/json/cluster/sdn/zones"
+        method: GET
+        headers:
+          Authorization: "PVEAPIToken={{ proxmox_api_user }}!{{ proxmox_api_token_id }}={{ proxmox_api_token_secret }}"
+        validate_certs: "{{ proxmox_api_validate_certs | default(false) }}"
+      register: proxmox_call
+
+    ####
+    ####
+
+    - name: NETWORK - CLUSTER - LIST SDN ZONES - proxmox_call
+      debug:
+        var: proxmox_call
+
+    ####
+    ####
+
+    - name: NETWORK - CLUSTER - BUILD JSON WITH SDN ZONES
+      set_fact:
+        network_list_sdn_zones: >-
+          {%- set out = [] -%}
+          {%- for item in proxmox_call.json.data -%}
+          {%-   set _ = out.append({
+                'action':            "network_list_sdn_zones",
+                'source':            "proxmox",
+                'proxmox_node':      proxmox_node,
+
+                'zone':              item.zone,
+                'zone_type':         (item.type    if (item.type    is defined) else omit),
+                'zone_ipam':         (item.ipam    if (item.ipam    is defined) else omit),
+                'zone_mtu':          (item.mtu     if (item.mtu     is defined) else omit),
+                'zone_nodes':        (item.nodes   if (item.nodes   is defined) else omit),
+                'zone_dhcp':         (item.dhcp    if (item.dhcp    is defined) else omit),
+                'zone_pending':      (item.pending if (item.pending is defined) else omit),
+                'zone_state':        (item.state   if (item.state   is defined) else omit)
+              }) -%}
+          {%- endfor -%}
+          {{ out }}
+
+      when: proxmox_vm_action == "network_list_sdn_zones"
+
+    ####
+    ####
+    ## This debug task is NOT cosmetic : the devkit helper extracts its payload with
+    ##   select(type=="object" and has($action)) | .[$action]
+    ## so a JSON key named EXACTLY like the action must appear in the task results.
+    ## Without it the devkit returns an empty stream and exits 0 (silent failure).
+    ####
+
+    - name: NETWORK - CLUSTER - LIST SDN ZONES - PRINT JSON
+      debug:
+        var: network_list_sdn_zones
+
+  ####
+  ####
+
+  when: proxmox_vm_action == "network_list_sdn_zones"

@@ -296,6 +296,12 @@
   ansible.builtin.include_tasks: "./include/network/list_network_node_sdn_zones.yaml"
   when: proxmox_vm_action == "network_list_node_sdn_zones"
 
+#### SDN - cluster level
+
+- name: INCLUDE - ./include/network/list_network_sdn_zones.yaml
+  ansible.builtin.include_tasks: "./include/network/list_network_sdn_zones.yaml"
+  when: proxmox_vm_action == "network_list_sdn_zones"
+
 #### #### #### #### #### #### #### #### #### #### #### #### #### #### #### ####
 #### #### #### #### #### #### #### #### #### #### #### #### #### #### #### ####
 #### #### #### #### #### #### #### #### #### #### #### #### #### #### #### ####
