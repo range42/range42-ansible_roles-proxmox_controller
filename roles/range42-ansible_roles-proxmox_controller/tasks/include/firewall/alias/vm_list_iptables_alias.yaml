@@ -8,7 +8,7 @@
     ####
     ####
 
-    - name: VM LEVEL - LIST FW ALIAS -  FIREWALL RULE
+    - name: FIREWALL - VM - LIST FW ALIAS
       uri:
         url: "https://{{ proxmox_api_host}}/api2/json/nodes/{{ proxmox_node}}/qemu/{{ vm_id }}/firewall/aliases"
         method: GET
@@ -18,18 +18,14 @@
         validate_certs: "{{ proxmox_api_validate_certs | default(false) }}"
       register: proxmox_call
 
-    - name: PRINT proxmox_call
+    - name: FIREWALL - VM - LIST FW ALIAS - proxmox_call
       debug:
         var: proxmox_call
 
     ####
     ####
 
-    - name: VM LEVEL - LIST FW ALIAS -  PRINT proxmox_call
-      debug:
-        var: proxmox_call
-
-    - name: VM LIST - BUILD JSON
+    - name: FIREWALL - VM - LIST FW ALIAS - BUILD JSON
       set_fact:
         firewall_vm_list_iptables_alias: >- #
           {{ (firewall_vm_list_iptables_alias | default([])) +
@@ -48,7 +44,7 @@
       loop_control:
         loop_var: item
 
-    - name: VM LEVEL - LIST FW ALIAS -  PRINT JSON
+    - name: FIREWALL - VM - LIST FW ALIAS - PRINT JSON
       debug:
         var: firewall_vm_list_iptables_alias
       when:
