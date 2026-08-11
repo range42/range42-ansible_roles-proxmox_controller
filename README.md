@@ -136,7 +136,7 @@ right task file:
 | `network_list_interfaces_node` | List node network interfaces |
 | `network_add_interfaces_node` | Add interface to a node |
 | `network_delete_interfaces_node` | Delete interface from a node |
-| `network_list_node_sdn_zones` | List SDN zones on a node |
+| `network_list_sdn_zones` | List SDN zones at the cluster level |
 
 ### Firewall (`firewall_*`)
 
