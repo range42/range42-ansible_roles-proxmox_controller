@@ -1,0 +1,146 @@
+---
+##
+## SDN - CLUSTER level (not node level).
+##
+## PUT /cluster/sdn  =  APPLY the pending SDN configuration.
+##
+## Everything the add and update actions declare stays PENDING until this runs. This is
+## what turns a declared zone, vnet or subnet into a live bridge, a live gateway and a
+## live SNAT rule.
+##
+## >>> THE APPLY IS ASYNCHRONOUS <<<
+## The PUT does not wait. It returns a UPID, the identifier of the background task doing
+## the work, and returns immediately. Chaining another action right after it means acting
+## on a half applied cluster. Polling until that task reports "stopped" is therefore not
+## a refinement, it is the contract.
+##
+## The node that runs the task is read back FROM THE UPID rather than assumed to be
+## proxmox_node. A UPID is "UPID:<node>:<pid>:<pstart>:<starttime>:<type>:<id>:<user>:",
+## so the node is its second field. On a multi node cluster the task may well be handled
+## elsewhere than the node the request was sent to, and polling the wrong node returns a
+## 404 that would read as a failed apply.
+##
+## The UPID is passed raw in the URL path. It contains colons, which are legal in a path
+## segment, and that is the form the Proxmox API and pvesh both use.
+##
+## >>> AND THE APPLY IS NOT IDEMPOTENT <<<
+## Every call adds one SNAT rule per subnet that has snat=1. Two consecutive applies with
+## no change at all give 1, then 2, then 3 rules. This action must therefore be followed
+## by network_delete_snat_rules on each active subnet, which reconciles the live rules
+## with the declared ones. Calling apply in a loop without it is how the legacy hack
+## reached roughly 276 rules for twelve bridges.
+##
+
+- block:
+    ####
+    ####
+
+    - name: NETWORK - CLUSTER - APPLY SDN CONFIGURATION
+      uri:
+        url: "https://{{ proxmox_api_host }}/api2/json/cluster/sdn"
+        method: PUT
+        headers:
+          Authorization: "PVEAPIToken={{ proxmox_api_user }}!{{ proxmox_api_token_id }}={{ proxmox_api_token_secret }}"
+        validate_certs: "{{ proxmox_api_validate_certs | default(false) }}"
+      register: proxmox_call_apply
+
+    ####
+    ####
+
+    - name: NETWORK - CLUSTER - APPLY SDN CONFIGURATION - proxmox_call_apply
+      debug:
+        var: proxmox_call_apply
+
+    ####
+    ####
+    ## The task id and the node that owns it, both derived from the same string so they
+    ## cannot disagree.
+    ####
+
+    - name: NETWORK - CLUSTER - APPLY SDN - READ THE TASK ID BACK
+      set_fact:
+        _sdn_apply_upid: "{{ proxmox_call_apply.json.data | default('') }}"
+        # Guarded on the field count : indexing [1] of a split that yielded one element
+        # raises in Jinja, which would surface as a template traceback instead of the
+        # readable failure the assert below is there to produce.
+        _sdn_apply_node: >-
+          {{ (proxmox_call_apply.json.data | default('')).split(':')[1]
+             if ((proxmox_call_apply.json.data | default('')).split(':') | length > 1)
+             else '' }}
+
+    - name: NETWORK - CLUSTER - APPLY SDN - CHECK A TASK WAS ACTUALLY STARTED
+      ansible.builtin.assert:
+        that:
+          - _sdn_apply_upid is string
+          - _sdn_apply_upid.startswith('UPID:')
+          - _sdn_apply_node | length > 0
+        fail_msg: >-
+          the apply did not return a usable UPID, so there is no task to wait for and no
+          way to tell whether the configuration was applied. Got:
+          {{ _sdn_apply_upid | default('<nothing>') }}
+        success_msg: "apply task {{ _sdn_apply_upid }} running on node {{ _sdn_apply_node }}"
+
+    ####
+    ####
+    ## Poll until the task stops. `until` needs the key to exist on every attempt, hence
+    ## the default on status : a transient response without it must retry, not crash.
+    ####
+
+    - name: NETWORK - CLUSTER - APPLY SDN - WAIT FOR THE TASK TO FINISH
+      uri:
+        url: "https://{{ proxmox_api_host }}/api2/json/nodes/{{ _sdn_apply_node }}/tasks/{{ _sdn_apply_upid }}/status"
+        method: GET
+        headers:
+          Authorization: "PVEAPIToken={{ proxmox_api_user }}!{{ proxmox_api_token_id }}={{ proxmox_api_token_secret }}"
+        validate_certs: "{{ proxmox_api_validate_certs | default(false) }}"
+      register: proxmox_call
+      until: (proxmox_call.json.data.status | default('')) == "stopped"
+      retries: "{{ sdn_apply_poll_retries | default(60) }}"
+      delay: "{{ sdn_apply_poll_delay | default(2) }}"
+
+    ####
+    ####
+    ## A stopped task is not a successful task. Proxmox reports the outcome separately in
+    ## exitstatus, and anything other than OK has to fail loudly : a silently failed apply
+    ## leaves the cluster declaring one thing and running another.
+    ####
+
+    - name: NETWORK - CLUSTER - APPLY SDN - FAIL IF THE TASK DID NOT END OK
+      ansible.builtin.fail:
+        msg: >-
+          the SDN apply task {{ _sdn_apply_upid }} ended with
+          exitstatus={{ proxmox_call.json.data.exitstatus | default('<none>') }}.
+          Read the task log on {{ _sdn_apply_node }} before retrying.
+      when: (proxmox_call.json.data.exitstatus | default('')) != "OK"
+
+    ####
+    ####
+
+    - name: NETWORK - CLUSTER - APPLY SDN - BUILD JSON
+      set_fact:
+        network_apply_sdn:
+          action: "network_apply_sdn"
+          source: "proxmox"
+          proxmox_node: "{{ proxmox_node }}"
+
+          apply_upid: "{{ _sdn_apply_upid }}"
+          apply_node: "{{ _sdn_apply_node }}"
+          apply_status: "{{ proxmox_call.json.data.status | default('') }}"
+          apply_exitstatus: "{{ proxmox_call.json.data.exitstatus | default('') }}"
+
+    ####
+    ####
+    ## This debug task is NOT cosmetic : the devkit helper extracts its payload with
+    ##   select(type=="object" and has($action)) | .[$action]
+    ## so a JSON key named EXACTLY like the action must appear in the task results.
+    ## Without it the devkit returns an empty stream and exits 0 (silent failure).
+    ####
+
+    - name: NETWORK - CLUSTER - APPLY SDN - PRINT JSON
+      debug:
+        var: network_apply_sdn
+
+  ####
+  ####
+
+  when: proxmox_vm_action == "network_apply_sdn"
