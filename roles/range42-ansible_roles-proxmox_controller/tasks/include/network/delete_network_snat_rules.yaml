@@ -1,48 +1,32 @@
 ---
 ##
 ## DELETE THE SURPLUS LIVE SNAT RULES OF ONE SUBNET, down to sdn_snat_want.
+## Deletes only, never creates : want=1 on a subnet at zero leaves zero, since creating
+## the rule is the apply's job. want=0 cuts the subnet off from the outside.
 ##
-## The working plan calls this primitive "norm_snat". The name here says what it does
-## instead of what it achieves, because "norm" invited the reading that it turns NAT on,
-## which it cannot : see below, it only ever deletes.
+## WHY : an apply is ifreload, which replays the vnet post-up hooks without playing the
+## post-down ones, so each apply appends one more SNAT rule per subnet at snat=1.
+## Setting snat=0 is worse, it drops the post-down hook before it ever ran and orphans
+## the live rule. Matching on the source network rather than the target makes it work on
+## SNAT and MASQUERADE alike, hence also on the rules left by the legacy hack.
 ##
-## This is the one action of the role that is NOT an API call. It runs iptables on the
-## Proxmox node itself, because the problem it solves lives below the API.
+## WHY NOT THE API : these rules are not API objects. They come from a post-up hook in
+## /etc/network/interfaces.d, so the firewall endpoints, which only ever write the
+## PVEFW-* chains, cannot see them.
 ##
-## WHY IT EXISTS
-## An SDN apply is not idempotent. Reloading the network configuration replays the
-## post-up hooks without ever playing the post-down ones, so every apply adds one more
-## SNAT rule per subnet that has snat=1. Measured on a clean chain : 1, then 2, then 3
-## rules for two consecutive applies with no change at all. With twelve vnets that is
-## twelve extra rules per apply. Setting snat=0 makes it worse, because it removes the
-## post-down hook from the configuration before that hook ever had a chance to run,
-## leaving the live rule orphaned.
+## WHERE IT RUNS : the host carrying the API address is ansible_connection local, so a
+## shell task there runs on the DEPLOYER. Only proxmox_cli reaches the node over SSH,
+## hence the delegation on that one task. The assert and the output fact stay local.
 ##
-## This is NOT a return to the old hack. The rule stays declared by the SDN, Proxmox
-## still owns it and it still survives a reboot. All this action does is reconcile the
-## live state with the declared one, which is what Ansible does everywhere else.
-##
-## WHAT IT DOES, AND WHAT IT DOES NOT
-## It DELETES surplus rules down to sdn_snat_want. It never creates one. So want=1 on a
-## subnet that currently has zero rules leaves zero : creating the rule is the apply's
-## job, not this one. want=0 cuts the subnet off from the outside.
-##
-## It works for SNAT and for MASQUERADE alike, since it matches on the source network
-## rather than on the target. That is what makes it usable to clean up the rules left
-## behind by the legacy hack, one subnet at a time.
-##
-## THREE THINGS THAT MUST NOT BE CHANGED
-##  1. the trailing SPACE in "-s ${S} " is load bearing. Without it, a value of
-##     192.168.14 would also match 192.168.140.0/24 and delete rules of another subnet.
-##  2. the host address is never hardcoded. The live rules are read back and the leading
-##     -A is turned into -D, so whatever Proxmox put there is what gets removed.
-##  3. the command substitution feeding iptables is deliberately unquoted : the rule
-##     specification has to be split into separate arguments.
-##
-## sdn_subnet_cidr must be written exactly as iptables renders it, mask included, for
-## instance 192.168.199.0/24. The assert below refuses anything else : this task
-## deletes firewall rules, so an empty or malformed value must stop it rather than let
-## it match something unintended.
+## DO NOT CHANGE
+##  1. the trailing SPACE in "-s ${S} " : without it 192.168.14 also matches
+##     192.168.140.0/24 and deletes another subnet's rules.
+##  2. the rule is read back and its -A turned into -D, so nothing is hardcoded.
+##  3. the substitution feeding iptables is unquoted on purpose, the rule spec has to
+##     split into separate arguments.
+##  4. every iptables exit status is checked. Piping straight into "grep -c ... || true"
+##     turned a missing binary into a count of zero, and the action reported a subnet
+##     reconciled that it had never looked at.
 ##
 
 - block:
@@ -54,9 +38,8 @@
         that:
           - sdn_subnet_cidr is defined
           - sdn_subnet_cidr is string
-          ## The match TEST, not the regex_search FILTER : a filter returns the matched
-          ## text, and a conditional that resolves to a string rather than a boolean is
-          ## refused outright by ansible-core. Same anchors, boolean result.
+          ## the match TEST, not the regex_search FILTER : a filter returns the matched
+          ## text, and a conditional must resolve to a boolean.
           - sdn_subnet_cidr is match('^([0-9]{1,3}\.){3}[0-9]{1,3}/[0-9]{1,2}$')
         fail_msg: >-
           sdn_subnet_cidr must be a CIDR with its mask, exactly as iptables renders it,
@@ -65,36 +48,84 @@
 
     ####
     ####
-    ## The loop is bounded on purpose. The plan's snippet loops until the count drops,
-    ## which never ends if a deletion silently fails, and this task runs on the
-    ## hypervisor. Giving up loudly after 1000 deletions beats hanging a deploy.
+    ## Without this the delegation below resolves to an empty host and the failure reads
+    ## as a connection problem instead of an incomplete inventory.
+    ####
+
+    - name: NETWORK - DELETE SNAT RULES - CHECK THE NODE IS REACHABLE OVER SSH
+      ansible.builtin.assert:
+        that:
+          - groups['proxmox_cli'] is defined
+          - (groups['proxmox_cli'] | default([]) | length) > 0
+        fail_msg: >-
+          this action needs SSH access to the hypervisor, which the inventory declares in
+          the proxmox_cli group. That group is missing or empty, so there is no host to run
+          iptables on. The API host cannot be used, it is declared connection local.
+        success_msg: "iptables will run on {{ groups['proxmox_cli'] | default([]) | first | default('') }}"
+
+    ####
+    ####
+    ## The loop is bounded : looping until the count drops never ends if a deletion
+    ## silently fails, and this runs on the hypervisor. The only tolerated failure below
+    ## is grep's exit 1, which legitimately means zero matching rules.
     ####
 
     - name: NETWORK - DELETE SNAT RULES - NORMALISE THE LIVE RULE COUNT
+      ## iptables lives in /usr/sbin, not always on a non interactive shell's PATH.
+      environment:
+        PATH: "/usr/sbin:/sbin:/usr/bin:/bin"
       ansible.builtin.shell: |
         set -u
         S='{{ sdn_subnet_cidr }}'
         want='{{ sdn_snat_want | default(1) }}'
 
-        count() { iptables -t nat -S POSTROUTING | grep -c -- "-s ${S} " || true; }
+        command -v iptables >/dev/null 2>&1 || {
+          echo "delete_snat_rules: iptables not found on $(hostname), PATH=$PATH" >&2
+          exit 1
+        }
 
-        before=$(count)
+        ## counting on captured text, so a read failure cannot look like an empty chain
+        table=$(iptables -t nat -S POSTROUTING) || {
+          echo "delete_snat_rules: cannot read the nat table on $(hostname)" >&2
+          exit 1
+        }
+        before=$(printf '%s\n' "$table" | grep -c -- "-s ${S} " || true)
+
         guard=0
-        while [ "$(count)" -gt "$want" ]; do
+        now="$before"
+        while [ "$now" -gt "$want" ]; do
           guard=$((guard + 1))
           if [ "$guard" -gt 1000 ]; then
             echo "delete_snat_rules: gave up after 1000 deletions, the rule count is not decreasing" >&2
             exit 1
           fi
-          # shellcheck disable=SC2046,SC2086
-          iptables -t nat $(iptables -t nat -S POSTROUTING | grep -m1 -- "-s ${S} " | sed 's/^-A /-D /')
+
+          rule=$(printf '%s\n' "$table" | grep -m1 -- "-s ${S} " | sed 's/^-A /-D /')
+          if [ -z "$rule" ]; then
+            echo "delete_snat_rules: counted ${now} rules but could not extract one to delete" >&2
+            exit 1
+          fi
+
+          # shellcheck disable=SC2086
+          iptables -t nat $rule || {
+            echo "delete_snat_rules: deletion refused : ${rule}" >&2
+            exit 1
+          }
+
+          table=$(iptables -t nat -S POSTROUTING) || {
+            echo "delete_snat_rules: cannot re-read the nat table after a deletion" >&2
+            exit 1
+          }
+          now=$(printf '%s\n' "$table" | grep -c -- "-s ${S} " || true)
         done
-        after=$(count)
+        after="$now"
 
         printf '{"before":%s,"after":%s,"want":%s,"deleted":%s}\n' \
           "$before" "$after" "$want" "$((before - after))"
       args:
         executable: /bin/bash
+      ## by group, not by name, so the codename stays out of the role
+      delegate_to: "{{ groups['proxmox_cli'] | first }}"
       register: proxmox_call
       changed_when: (proxmox_call.stdout | from_json).before != (proxmox_call.stdout | from_json).after
 
@@ -116,6 +147,11 @@
           proxmox_node: "{{ proxmox_node }}"
 
           subnet_cidr: "{{ sdn_subnet_cidr }}"
+
+          ## which host was actually touched : this once ran on the deployer and still
+          ## returned a clean zero
+          snat_host: "{{ groups['proxmox_cli'] | first }}"
+
           snat_want: "{{ (proxmox_call.stdout | from_json).want }}"
           snat_before: "{{ (proxmox_call.stdout | from_json).before }}"
           snat_after: "{{ (proxmox_call.stdout | from_json).after }}"
