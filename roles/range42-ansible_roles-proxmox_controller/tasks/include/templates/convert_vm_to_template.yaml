@@ -1,7 +1,4 @@
 ---
-##
-## ISSUE - 81
-##
 
 - block:
     - name: TEMPLATE - CHECK IF ALREADY A TEMPLATE
