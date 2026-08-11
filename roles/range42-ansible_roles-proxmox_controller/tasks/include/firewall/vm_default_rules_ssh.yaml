@@ -2,14 +2,63 @@
 ##
 ## #PR-31
 ##
+## ENABLE THE DEFAULT SSH RULE SET ON ONE VM : accept 22/tcp inbound, drop the rest.
+##
+## >>> THIS ACTION WAS DEAD <<<
+## The block used to guard on "firewall_vm_enable" while the dispatch includes this file
+## for "firewall_vm_enable_default_ssh_rules". Both conditions can never hold at once, so
+## the block was always skipped and the action had no caller anywhere. An audit of the 72
+## active dispatch entries found this to be the only such contradiction in the role.
+##
+## >>> RULE ORDER IS THE WHOLE SAFETY OF THIS ACTION <<<
+## The Proxmox firewall evaluates rules in order. An ACCEPT on 22 below a DROP on all
+## inbound traffic accepts nothing, and locks ssh out of the guest. Positions are
+## therefore ALWAYS passed explicitly, never left to whatever the API defaults to :
+## the accept goes to position 0, the drop right after it. Do not remove them.
+##
+## Reading the chain first makes the action idempotent. Posting blindly appends another
+## pair on every run, and a firewall chain silently growing duplicates is exactly the
+## problem the SNAT reconciliation exists to undo elsewhere.
+##
 
 - block:
     ####
     ####
+    ## Read before write : what is already there decides what gets posted.
+    ####
 
-    - name: VM LEVEL - FIREWALL RULE - ALLOW SSH - 22/TCP
+    - name: FIREWALL - VM - ENABLE DEFAULT SSH RULES - READ THE CURRENT CHAIN
       uri:
-        url: "https://{{ proxmox_api_host }}/api2/json/nodes/{{ proxmox_node }}/qemu/{{ proxmox_vmid }}/firewall/rules"
+        url: "https://{{ proxmox_api_host }}/api2/json/nodes/{{ proxmox_node }}/qemu/{{ vm_id }}/firewall/rules"
+        method: GET
+        headers:
+          Authorization: "PVEAPIToken={{ proxmox_api_user }}!{{ proxmox_api_token_id }}={{ proxmox_api_token_secret }}"
+        validate_certs: "{{ proxmox_api_validate_certs | default(false) }}"
+      register: proxmox_call_rules
+
+    - name: FIREWALL - VM - ENABLE DEFAULT SSH RULES - WHAT IS ALREADY IN PLACE
+      set_fact:
+        _vm_fw_has_ssh_accept: >-
+          {{ (proxmox_call_rules.json.data | default([], true))
+             | selectattr('type', 'defined') | selectattr('type', 'equalto', 'in')
+             | selectattr('action', 'defined') | selectattr('action', 'equalto', 'ACCEPT')
+             | selectattr('dport', 'defined') | selectattr('dport', 'equalto', '22')
+             | list | length > 0 }}
+        _vm_fw_has_drop_all: >-
+          {{ (proxmox_call_rules.json.data | default([], true))
+             | selectattr('type', 'defined') | selectattr('type', 'equalto', 'in')
+             | selectattr('action', 'defined') | selectattr('action', 'equalto', 'DROP')
+             | rejectattr('dport', 'defined')
+             | list | length > 0 }}
+
+    ####
+    ####
+    ## The accept FIRST, at the top of the chain.
+    ####
+
+    - name: FIREWALL - VM - ENABLE DEFAULT SSH RULES - ACCEPT 22/TCP INBOUND
+      uri:
+        url: "https://{{ proxmox_api_host }}/api2/json/nodes/{{ proxmox_node }}/qemu/{{ vm_id }}/firewall/rules"
         method: POST
         headers:
           Authorization: "PVEAPIToken={{ proxmox_api_user }}!{{ proxmox_api_token_id }}={{ proxmox_api_token_secret }}"
@@ -19,14 +68,20 @@
           action: "ACCEPT"
           proto: "tcp"
           dport: "22"
+          pos: "{{ vm_fw_ssh_accept_pos | default(0) }}"
+          comment: "{{ vm_fw_ssh_accept_comment | default('range42 default ssh access') }}"
         validate_certs: "{{ proxmox_api_validate_certs | default(false) }}"
+      register: proxmox_call
+      when: not _vm_fw_has_ssh_accept
 
     ####
     ####
+    ## The drop SECOND, immediately below it.
+    ####
 
-    - name: VM LEVEL - FIREWALL RULE - DROP ALL - IN
+    - name: FIREWALL - VM - ENABLE DEFAULT SSH RULES - DROP EVERYTHING ELSE INBOUND
       uri:
-        url: "https://{{ proxmox_api_host }}/api2/json/nodes/{{ proxmox_node }}/qemu/{{ proxmox_vmid }}/firewall/rules"
+        url: "https://{{ proxmox_api_host }}/api2/json/nodes/{{ proxmox_node }}/qemu/{{ vm_id }}/firewall/rules"
         method: POST
         headers:
           Authorization: "PVEAPIToken={{ proxmox_api_user }}!{{ proxmox_api_token_id }}={{ proxmox_api_token_secret }}"
@@ -34,9 +89,41 @@
         body:
           type: "in"
           action: "DROP"
+          pos: "{{ vm_fw_drop_all_pos | default(1) }}"
+          comment: "{{ vm_fw_drop_all_comment | default('range42 default deny inbound') }}"
         validate_certs: "{{ proxmox_api_validate_certs | default(false) }}"
+      register: proxmox_call_drop
+      when: not _vm_fw_has_drop_all
+
+    ####
+    ####
+
+    - name: FIREWALL - VM - ENABLE DEFAULT SSH RULES - BUILD JSON
+      set_fact:
+        firewall_vm_enable_default_ssh_rules:
+          action: "firewall_vm_enable_default_ssh_rules"
+          source: "proxmox"
+          proxmox_node: "{{ proxmox_node }}"
+          vm_id: "{{ vm_id }}"
+
+          ssh_accept_already_present: "{{ _vm_fw_has_ssh_accept }}"
+          drop_all_already_present: "{{ _vm_fw_has_drop_all }}"
+          ssh_accept_pos: "{{ vm_fw_ssh_accept_pos | default(0) }}"
+          drop_all_pos: "{{ vm_fw_drop_all_pos | default(1) }}"
+
+    ####
+    ####
+    ## This debug task is NOT cosmetic : the devkit helper extracts its payload with
+    ##   select(type=="object" and has($action)) | .[$action]
+    ## so a JSON key named EXACTLY like the action must appear in the task results.
+    ## Without it the devkit returns an empty stream and exits 0 (silent failure).
+    ####
+
+    - name: FIREWALL - VM - ENABLE DEFAULT SSH RULES - PRINT JSON
+      debug:
+        var: firewall_vm_enable_default_ssh_rules
 
   ####
   ####
 
-  when: proxmox_vm_action == "firewall_vm_enable"
+  when: proxmox_vm_action == "firewall_vm_enable_default_ssh_rules"
