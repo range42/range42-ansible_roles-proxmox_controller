@@ -182,8 +182,8 @@
 
 #### #### #### #### #### #### #### #### #### #### #### #### #### #### #### ####
 
-- name: INCLUDE - ./include/firewall/vm_default_rules_ssh.yaml
-  ansible.builtin.include_tasks: "./include/firewall/vm_default_rules_ssh.yaml"
+- name: INCLUDE - ./include/firewall/vm_enable_default_ssh_rules.yaml
+  ansible.builtin.include_tasks: "./include/firewall/vm_enable_default_ssh_rules.yaml"
   when: proxmox_vm_action == "firewall_vm_enable_default_ssh_rules"
 
 #### #### #### #### #### #### #### #### #### #### #### #### #### #### #### ####
