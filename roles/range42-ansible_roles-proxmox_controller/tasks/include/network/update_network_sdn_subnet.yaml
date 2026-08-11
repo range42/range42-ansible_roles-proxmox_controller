@@ -1,0 +1,108 @@
+---
+##
+## SDN - CLUSTER level (not node level).
+##
+## PUT /cluster/sdn/vnets/{vnet}/subnets/{subnet_id}
+##
+## The switch the platform needs : sdn_subnet_snat=1 gives the guests of that subnet
+## outbound internet, 0 takes it away. Everything else the creation accepts can be changed
+## here too.
+##
+## >>> sdn_subnet_id IS THE ID, NOT THE CIDR <<<
+## Creation takes the network (192.168.199.0/24) and Proxmox derives the id from it as
+## <zone>-<network>-<mask>, for instance r42test-192.168.199.0-24. Only that id addresses
+## the object afterwards, which is why the variable differs from the one the creation uses.
+## The assert refuses anything containing a slash, and the read action hands the right
+## value in its `subnet` field.
+##
+## `type` is NOT sent : it is fixed at creation and this endpoint does not take it back.
+##
+## >>> THE TOGGLE IS THREE STEPS, NOT ONE <<<
+##     1. this action        the declaration changes
+##     2. network_apply_sdn  the change becomes live, asynchronously
+##     3. network_delete_snat_rules   the live rules are reconciled
+##
+## Step 3 is not optional in either direction. Going up, the apply adds one SNAT rule per
+## active subnet every time it runs, so the count has to be brought back to one. Going down
+## is worse : snat=0 removes the post-down hook from the configuration BEFORE that hook ever
+## had a chance to run, so the live rule is left orphaned with nothing declaring it. Without
+## step 3 a subnet set to snat=0 keeps its internet access.
+##
+
+- block:
+    ####
+    ####
+
+    - name: NETWORK - CLUSTER - UPDATE SDN SUBNET - CHECK AN ID WAS GIVEN, NOT A CIDR
+      ansible.builtin.assert:
+        that:
+          - sdn_subnet_id is defined
+          - sdn_subnet_id is string
+          - sdn_subnet_id | length > 0
+          - "'/' not in sdn_subnet_id"
+        fail_msg: >-
+          sdn_subnet_id must be the subnet ID as Proxmox built it,
+          <zone>-<network>-<mask>, for instance r42test-192.168.199.0-24. A CIDR is not
+          accepted here : the read action returns the id in its `subnet` field and the
+          network in `subnet_cidr`. Got: {{ sdn_subnet_id | default('<undefined>') }}
+        success_msg: "updating subnet {{ sdn_subnet_id }} of vnet {{ sdn_vnet | default('<undefined>') }}"
+
+    ####
+    ####
+
+    - name: NETWORK - CLUSTER - UPDATE SDN SUBNET
+      uri:
+        url: "https://{{ proxmox_api_host }}/api2/json/cluster/sdn/vnets/{{ sdn_vnet }}/subnets/{{ sdn_subnet_id }}"
+        method: PUT
+        headers:
+          Authorization: "PVEAPIToken={{ proxmox_api_user }}!{{ proxmox_api_token_id }}={{ proxmox_api_token_secret }}"
+        body_format: json
+        body:
+          snat: "{{ sdn_subnet_snat | default(omit) }}"
+          gateway: "{{ sdn_subnet_gateway | default(omit) }}"
+          dhcp-range: "{{ sdn_subnet_dhcp_range | default(omit) }}"
+          dhcp-dns-server: "{{ sdn_subnet_dhcp_dns_server | default(omit) }}"
+
+        validate_certs: "{{ proxmox_api_validate_certs | default(false) }}"
+      register: proxmox_call
+
+    ####
+    ####
+
+    - name: NETWORK - CLUSTER - UPDATE SDN SUBNET - proxmox_call
+      debug:
+        var: proxmox_call
+
+    ####
+    ####
+
+    - name: NETWORK - CLUSTER - UPDATE SDN SUBNET - BUILD JSON
+      set_fact:
+        network_update_sdn_subnet:
+          action: "network_update_sdn_subnet"
+          source: "proxmox"
+          proxmox_node: "{{ proxmox_node }}"
+
+          subnet: "{{ sdn_subnet_id }}"
+          subnet_vnet: "{{ sdn_vnet }}"
+          subnet_snat: "{{ sdn_subnet_snat | default(omit) }}"
+          subnet_gateway: "{{ sdn_subnet_gateway | default(omit) }}"
+          subnet_dhcp_range: "{{ sdn_subnet_dhcp_range | default(omit) }}"
+          subnet_dhcp_dns_server: "{{ sdn_subnet_dhcp_dns_server | default(omit) }}"
+
+    ####
+    ####
+    ## This debug task is NOT cosmetic : the devkit helper extracts its payload with
+    ##   select(type=="object" and has($action)) | .[$action]
+    ## so a JSON key named EXACTLY like the action must appear in the task results.
+    ## Without it the devkit returns an empty stream and exits 0 (silent failure).
+    ####
+
+    - name: NETWORK - CLUSTER - UPDATE SDN SUBNET - PRINT JSON
+      debug:
+        var: network_update_sdn_subnet
+
+  ####
+  ####
+
+  when: proxmox_vm_action == "network_update_sdn_subnet"
