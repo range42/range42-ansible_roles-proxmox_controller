@@ -54,7 +54,10 @@
         that:
           - sdn_subnet_cidr is defined
           - sdn_subnet_cidr is string
-          - sdn_subnet_cidr | regex_search('^([0-9]{1,3}\.){3}[0-9]{1,3}/[0-9]{1,2}$')
+          ## The match TEST, not the regex_search FILTER : a filter returns the matched
+          ## text, and a conditional that resolves to a string rather than a boolean is
+          ## refused outright by ansible-core. Same anchors, boolean result.
+          - sdn_subnet_cidr is match('^([0-9]{1,3}\.){3}[0-9]{1,3}/[0-9]{1,2}$')
         fail_msg: >-
           sdn_subnet_cidr must be a CIDR with its mask, exactly as iptables renders it,
           for instance 192.168.199.0/24. Got: {{ sdn_subnet_cidr | default('<undefined>') }}
