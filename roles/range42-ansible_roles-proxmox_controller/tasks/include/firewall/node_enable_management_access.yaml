@@ -1,0 +1,143 @@
+---
+##
+## ANTI-LOCKOUT : GUARANTEE MANAGEMENT ACCESS TO A NODE BEFORE ITS FIREWALL GOES ON.
+##
+## POST /nodes/{node}/firewall/rules, twice.
+##
+## Enabling a node firewall without an accepted path to the web interface and to ssh locks
+## the operator out of the machine, and recovering from that needs physical or console
+## access. This action is the guard to run BEFORE firewall_node_enable, never after.
+##
+##     8006/tcp   the Proxmox web interface and its API, which is also how this role talks
+##                to the cluster : losing it means losing the tool that would fix it
+##     22/tcp     ssh
+##
+## >>> POSITIONS ARE PASSED EXPLICITLY, AND THAT IS THE WHOLE POINT <<<
+## The Proxmox firewall evaluates rules in order. An accept sitting below a drop accepts
+## nothing. Leaving the position to whatever the API defaults to turns this guard into a
+## coin toss between protecting access and blocking it, so both rules carry an explicit
+## position at the top of the chain. Do not remove them.
+##
+## Reading the chain first makes the action idempotent. Posting blindly appends another
+## pair on every run.
+##
+## Scope note : this only covers the node chain. A guest reached through this node has its
+## own chain, and the datacenter level has its own options as well.
+##
+
+- block:
+    ####
+    ####
+    ## Read before write : what is already there decides what gets posted.
+    ####
+
+    - name: FIREWALL - NODE - ENABLE MANAGEMENT ACCESS - READ THE CURRENT CHAIN
+      uri:
+        url: "https://{{ proxmox_api_host }}/api2/json/nodes/{{ proxmox_node }}/firewall/rules"
+        method: GET
+        headers:
+          Authorization: "PVEAPIToken={{ proxmox_api_user }}!{{ proxmox_api_token_id }}={{ proxmox_api_token_secret }}"
+        validate_certs: "{{ proxmox_api_validate_certs | default(false) }}"
+      register: proxmox_call_rules
+
+    - name: FIREWALL - NODE - ENABLE MANAGEMENT ACCESS - WHAT IS ALREADY IN PLACE
+      set_fact:
+        _node_fw_has_api: >-
+          {{ (proxmox_call_rules.json.data | default([], true))
+             | selectattr('type', 'defined') | selectattr('type', 'equalto', 'in')
+             | selectattr('action', 'defined') | selectattr('action', 'equalto', 'ACCEPT')
+             | selectattr('dport', 'defined')
+             | selectattr('dport', 'equalto', node_fw_api_port | default('8006') | string)
+             | list | length > 0 }}
+        _node_fw_has_ssh: >-
+          {{ (proxmox_call_rules.json.data | default([], true))
+             | selectattr('type', 'defined') | selectattr('type', 'equalto', 'in')
+             | selectattr('action', 'defined') | selectattr('action', 'equalto', 'ACCEPT')
+             | selectattr('dport', 'defined')
+             | selectattr('dport', 'equalto', node_fw_ssh_port | default('22') | string)
+             | list | length > 0 }}
+
+    ####
+    ####
+    ## The API port first : it is the way back in if anything else goes wrong.
+    ####
+
+    - name: FIREWALL - NODE - ENABLE MANAGEMENT ACCESS - ACCEPT THE API PORT
+      uri:
+        url: "https://{{ proxmox_api_host }}/api2/json/nodes/{{ proxmox_node }}/firewall/rules"
+        method: POST
+        headers:
+          Authorization: "PVEAPIToken={{ proxmox_api_user }}!{{ proxmox_api_token_id }}={{ proxmox_api_token_secret }}"
+        body_format: json
+        body:
+          type: "in"
+          action: "ACCEPT"
+          proto: "tcp"
+          dport: "{{ node_fw_api_port | default('8006') }}"
+          pos: "{{ node_fw_api_pos | default(0) }}"
+          source: "{{ node_fw_mgmt_source | default(omit) }}"
+          comment: "{{ node_fw_api_comment | default('range42 anti-lockout, proxmox api') }}"
+        validate_certs: "{{ proxmox_api_validate_certs | default(false) }}"
+      register: proxmox_call
+      when: not _node_fw_has_api
+
+    ####
+    ####
+    ## Then ssh, immediately below it.
+    ####
+
+    - name: FIREWALL - NODE - ENABLE MANAGEMENT ACCESS - ACCEPT SSH
+      uri:
+        url: "https://{{ proxmox_api_host }}/api2/json/nodes/{{ proxmox_node }}/firewall/rules"
+        method: POST
+        headers:
+          Authorization: "PVEAPIToken={{ proxmox_api_user }}!{{ proxmox_api_token_id }}={{ proxmox_api_token_secret }}"
+        body_format: json
+        body:
+          type: "in"
+          action: "ACCEPT"
+          proto: "tcp"
+          dport: "{{ node_fw_ssh_port | default('22') }}"
+          pos: "{{ node_fw_ssh_pos | default(1) }}"
+          source: "{{ node_fw_mgmt_source | default(omit) }}"
+          comment: "{{ node_fw_ssh_comment | default('range42 anti-lockout, ssh') }}"
+        validate_certs: "{{ proxmox_api_validate_certs | default(false) }}"
+      register: proxmox_call_ssh
+      when: not _node_fw_has_ssh
+
+    ####
+    ####
+
+    - name: FIREWALL - NODE - ENABLE MANAGEMENT ACCESS - BUILD JSON
+      set_fact:
+        firewall_node_enable_management_access:
+          action: "firewall_node_enable_management_access"
+          source: "proxmox"
+          proxmox_node: "{{ proxmox_node }}"
+
+          api_port: "{{ node_fw_api_port | default('8006') }}"
+          api_pos: "{{ node_fw_api_pos | default(0) }}"
+          api_already_present: "{{ _node_fw_has_api }}"
+
+          ssh_port: "{{ node_fw_ssh_port | default('22') }}"
+          ssh_pos: "{{ node_fw_ssh_pos | default(1) }}"
+          ssh_already_present: "{{ _node_fw_has_ssh }}"
+
+          mgmt_source: "{{ node_fw_mgmt_source | default(omit) }}"
+
+    ####
+    ####
+    ## This debug task is NOT cosmetic : the devkit helper extracts its payload with
+    ##   select(type=="object" and has($action)) | .[$action]
+    ## so a JSON key named EXACTLY like the action must appear in the task results.
+    ## Without it the devkit returns an empty stream and exits 0 (silent failure).
+    ####
+
+    - name: FIREWALL - NODE - ENABLE MANAGEMENT ACCESS - PRINT JSON
+      debug:
+        var: firewall_node_enable_management_access
+
+  ####
+  ####
+
+  when: proxmox_vm_action == "firewall_node_enable_management_access"
