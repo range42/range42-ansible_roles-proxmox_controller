@@ -26,7 +26,7 @@
 ## >>> AND THE APPLY IS NOT IDEMPOTENT <<<
 ## Every call adds one SNAT rule per subnet that has snat=1. Two consecutive applies with
 ## no change at all give 1, then 2, then 3 rules. This action must therefore be followed
-## by network_delete_snat_rules on each active subnet, which reconciles the live rules
+## by network_delete_extra_snat_rules on each active subnet, which reconciles the live rules
 ## with the declared ones. Calling apply in a loop without it is how the legacy hack
 ## reached roughly 276 rules for twelve bridges.
 ##

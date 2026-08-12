@@ -20,7 +20,7 @@
 ## >>> THE TOGGLE IS THREE STEPS, NOT ONE <<<
 ##     1. this action        the declaration changes
 ##     2. network_apply_sdn  the change becomes live, asynchronously
-##     3. network_delete_snat_rules   the live rules are reconciled
+##     3. network_delete_extra_snat_rules   the live rules are reconciled
 ##
 ## Step 3 is not optional in either direction. Going up, the apply adds one SNAT rule per
 ## active subnet every time it runs, so the count has to be brought back to one. Going down

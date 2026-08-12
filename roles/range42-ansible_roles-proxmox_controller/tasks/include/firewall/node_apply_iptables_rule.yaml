@@ -11,7 +11,7 @@
 ##
 ## Despite the name this is NOT raw iptables : every firewall action of this role talks to
 ## the Proxmox firewall API, which generates the iptables rules itself. The only action
-## that touches iptables directly is network_delete_snat_rules, because the SDN SNAT rule
+## that touches iptables directly is network_delete_extra_snat_rules, because the SDN SNAT rule
 ## is owned by ifupdown2 rather than by pve-firewall.
 ##
 ## node_fw_pos is worth passing. Rules are evaluated in order, so a rule whose position is

@@ -23,7 +23,7 @@
 ## apply is asynchronous, returns a UPID and needs polling, so it is its own action.
 ##
 ## Beware when applying repeatedly : an apply is not idempotent and adds one SNAT rule
-## per active subnet every time, which is what network_delete_snat_rules exists to
+## per active subnet every time, which is what network_delete_extra_snat_rules exists to
 ## reconcile.
 ##
 

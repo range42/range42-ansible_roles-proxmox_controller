@@ -1,6 +1,6 @@
 ---
 ##
-## DELETE THE SURPLUS LIVE SNAT RULES OF ONE SUBNET, down to sdn_snat_want.
+## DELETE THE EXTRA LIVE SNAT RULES OF ONE SUBNET, down to sdn_snat_want.
 ## Deletes only, never creates : want=1 on a subnet at zero leaves zero, since creating
 ## the rule is the apply's job. want=0 cuts the subnet off from the outside.
 ##
@@ -33,7 +33,7 @@
     ####
     ####
 
-    - name: NETWORK - DELETE SNAT RULES - CHECK THE SUBNET IS A WELL FORMED CIDR
+    - name: NETWORK - DELETE EXTRA SNAT RULES - CHECK THE SUBNET IS A WELL FORMED CIDR
       ansible.builtin.assert:
         that:
           - sdn_subnet_cidr is defined
@@ -52,7 +52,7 @@
     ## as a connection problem instead of an incomplete inventory.
     ####
 
-    - name: NETWORK - DELETE SNAT RULES - CHECK THE NODE IS REACHABLE OVER SSH
+    - name: NETWORK - DELETE EXTRA SNAT RULES - CHECK THE NODE IS REACHABLE OVER SSH
       ansible.builtin.assert:
         that:
           - groups['proxmox_cli'] is defined
@@ -70,7 +70,7 @@
     ## is grep's exit 1, which legitimately means zero matching rules.
     ####
 
-    - name: NETWORK - DELETE SNAT RULES - NORMALISE THE LIVE RULE COUNT
+    - name: NETWORK - DELETE EXTRA SNAT RULES - NORMALISE THE LIVE RULE COUNT
       ## iptables lives in /usr/sbin, not always on a non interactive shell's PATH.
       environment:
         PATH: "/usr/sbin:/sbin:/usr/bin:/bin"
@@ -80,13 +80,13 @@
         want='{{ sdn_snat_want | default(1) }}'
 
         command -v iptables >/dev/null 2>&1 || {
-          echo "delete_snat_rules: iptables not found on $(hostname), PATH=$PATH" >&2
+          echo "delete_extra_snat_rules: iptables not found on $(hostname), PATH=$PATH" >&2
           exit 1
         }
 
         ## counting on captured text, so a read failure cannot look like an empty chain
         table=$(iptables -t nat -S POSTROUTING) || {
-          echo "delete_snat_rules: cannot read the nat table on $(hostname)" >&2
+          echo "delete_extra_snat_rules: cannot read the nat table on $(hostname)" >&2
           exit 1
         }
         before=$(printf '%s\n' "$table" | grep -c -- "-s ${S} " || true)
@@ -96,24 +96,24 @@
         while [ "$now" -gt "$want" ]; do
           guard=$((guard + 1))
           if [ "$guard" -gt 1000 ]; then
-            echo "delete_snat_rules: gave up after 1000 deletions, the rule count is not decreasing" >&2
+            echo "delete_extra_snat_rules: gave up after 1000 deletions, the rule count is not decreasing" >&2
             exit 1
           fi
 
           rule=$(printf '%s\n' "$table" | grep -m1 -- "-s ${S} " | sed 's/^-A /-D /')
           if [ -z "$rule" ]; then
-            echo "delete_snat_rules: counted ${now} rules but could not extract one to delete" >&2
+            echo "delete_extra_snat_rules: counted ${now} rules but could not extract one to delete" >&2
             exit 1
           fi
 
           # shellcheck disable=SC2086
           iptables -t nat $rule || {
-            echo "delete_snat_rules: deletion refused : ${rule}" >&2
+            echo "delete_extra_snat_rules: deletion refused : ${rule}" >&2
             exit 1
           }
 
           table=$(iptables -t nat -S POSTROUTING) || {
-            echo "delete_snat_rules: cannot re-read the nat table after a deletion" >&2
+            echo "delete_extra_snat_rules: cannot re-read the nat table after a deletion" >&2
             exit 1
           }
           now=$(printf '%s\n' "$table" | grep -c -- "-s ${S} " || true)
@@ -132,17 +132,17 @@
     ####
     ####
 
-    - name: NETWORK - DELETE SNAT RULES - proxmox_call
+    - name: NETWORK - DELETE EXTRA SNAT RULES - proxmox_call
       debug:
         var: proxmox_call
 
     ####
     ####
 
-    - name: NETWORK - DELETE SNAT RULES - BUILD JSON
+    - name: NETWORK - DELETE EXTRA SNAT RULES - BUILD JSON
       set_fact:
-        network_delete_snat_rules:
-          action: "network_delete_snat_rules"
+        network_delete_extra_snat_rules:
+          action: "network_delete_extra_snat_rules"
           source: "proxmox"
           proxmox_node: "{{ proxmox_node }}"
 
@@ -165,11 +165,11 @@
     ## Without it the devkit returns an empty stream and exits 0 (silent failure).
     ####
 
-    - name: NETWORK - DELETE SNAT RULES - PRINT JSON
+    - name: NETWORK - DELETE EXTRA SNAT RULES - PRINT JSON
       debug:
-        var: network_delete_snat_rules
+        var: network_delete_extra_snat_rules
 
   ####
   ####
 
-  when: proxmox_vm_action == "network_delete_snat_rules"
+  when: proxmox_vm_action == "network_delete_extra_snat_rules"

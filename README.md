@@ -147,7 +147,7 @@ right task file:
 | `network_delete_sdn_vnet` | Delete an SDN vnet, once it has no subnet left |
 | `network_delete_sdn_zone` | Delete an SDN zone, once it has no vnet left |
 | `network_apply_sdn` | Apply the pending SDN configuration, waiting for the task |
-| `network_delete_snat_rules` | Delete the surplus live SNAT rules of one subnet |
+| `network_delete_extra_snat_rules` | Delete the extra live SNAT rules of one subnet, down to a wanted count |
 
 ### Firewall (`firewall_*`)
 
