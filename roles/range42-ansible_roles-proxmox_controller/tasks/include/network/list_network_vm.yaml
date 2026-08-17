@@ -20,6 +20,18 @@
       debug:
         var: proxmox_call
 
+    ####
+    ## Emitted below : the device name AND its numeric id. The id is what the delete
+    ## action addresses, since it builds "net<id>", so emitting only the name would make
+    ## this output unusable as the input of a delete. That is what broke
+    ## delete_all_interfaces_vm, whose whole job is to pipe one into the other.
+    ##
+    ## These lines sit HERE and not inside the expression below : the value of the
+    ## set_fact is a folded scalar holding one single {{ }}, so a ## inside it is not a
+    ## YAML comment at all, it reaches Jinja as code and the template fails with
+    ## "unexpected char '#'".
+    ####
+
     - name: NETWORK - VM - LIST NETWORK INTERFACES - BUILD JSON
       set_fact:
         network_list_interfaces_vm: >-
@@ -29,12 +41,6 @@
                 'source': "proxmox",
                 'proxmox_node': proxmox_node,
                 'vm_id': vm_id,
-
-                ## The device name AND its numeric id. The id is what the delete action
-                ## addresses (it builds "net<id>"), so emitting only the name would make
-                ## this output unusable as the input of a delete : that is exactly what
-                ## broke delete_all_interfaces_vm, whose whole job is to pipe one into
-                ## the other.
                 'vm_network_device'  : item.key,
                 'vm_vmnet_id'        : item.key | regex_replace('^net', '') | int,
                 'vm_network_type'    : item.value.split(',')[0].split('=',1)[0],
