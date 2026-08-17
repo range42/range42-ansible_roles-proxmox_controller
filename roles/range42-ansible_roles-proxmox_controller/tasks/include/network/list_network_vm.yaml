@@ -29,7 +29,14 @@
                 'source': "proxmox",
                 'proxmox_node': proxmox_node,
                 'vm_id': vm_id,
+
+                ## The device name AND its numeric id. The id is what the delete action
+                ## addresses (it builds "net<id>"), so emitting only the name would make
+                ## this output unusable as the input of a delete : that is exactly what
+                ## broke delete_all_interfaces_vm, whose whole job is to pipe one into
+                ## the other.
                 'vm_network_device'  : item.key,
+                'vm_vmnet_id'        : item.key | regex_replace('^net', '') | int,
                 'vm_network_type'    : item.value.split(',')[0].split('=',1)[0],
                 'vm_network_mac'     : item.value.split(',')[0].split('=',1)[1],
                 'vm_network_bridge'  : item.value.split(',')[1].split('=',1)[1],
