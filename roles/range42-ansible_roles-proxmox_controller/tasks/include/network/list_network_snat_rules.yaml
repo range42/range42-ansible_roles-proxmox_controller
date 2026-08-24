@@ -10,7 +10,11 @@
 ## ones, so each apply appends one more rule per subnet at snat=1. Counting them is how
 ## that drift becomes visible.
 ##
-## WHY THE TARGET IS REPORTED : it tells the two producers apart. Proxmox writes SNAT
+## WHY THE OUT INTERFACE IS REPORTED : it is the only place it can be read. Proxmox auto-detects
+# it from the default route when it writes the vnet post-up hook, so no declaration holds it,
+# and it is what actually answers "where does this subnet leave through".
+#
+# WHY THE TARGET IS REPORTED : it tells the two producers apart. Proxmox writes SNAT
 ## --to-source from its own post-up hook, the legacy bridge hack writes MASQUERADE from a
 ## vmbr stanza. Same effect on traffic, but only the first one disappears when the SDN
 ## subnet is set to snat=0 - so an operator seeing MASQUERADE knows the rule will come
@@ -86,13 +90,21 @@
         printf '%s\n' "$table" | grep -- ' -s ' | while IFS= read -r line ; do
           src=${line#* -s }
           src=${src%% *}
+          ## the OUT INTERFACE : this is the answer to "where does this subnet actually leave
+          ## through". Proxmox auto-detects it from the default route when it writes the vnet
+          ## hook, so it is not something we declare anywhere - it can only be read here.
+          case "$line" in
+            *' -o '*) out=${line#* -o } ; out=${out%% *} ;;
+            *)        out="any" ;;
+          esac
           case "$line" in
             *' -j '*) tgt=${line##* -j } ; tgt=${tgt%% *} ;;
             *)        tgt="none" ;;
           esac
-          [ -n "$src" ] && printf '%s %s\n' "$src" "$tgt"
-        done | sort | uniq -c | while read -r cnt src tgt ; do
-          printf '{"snat_source":"%s","snat_target":"%s","snat_count":%s}\n' "$src" "$tgt" "$cnt"
+          [ -n "$src" ] && printf '%s %s %s\n' "$src" "$out" "$tgt"
+        done | sort | uniq -c | while read -r cnt src out tgt ; do
+          printf '{"snat_source":"%s","snat_out_iface":"%s","snat_target":"%s","snat_count":%s}\n' \
+            "$src" "$out" "$tgt" "$cnt"
         done
       args:
         executable: /bin/bash
@@ -129,9 +141,10 @@
                   'proxmox_node': proxmox_node,
                   'snat_host':    groups['proxmox_cli'] | first,
 
-                  'snat_source':  r.snat_source,
-                  'snat_target':  r.snat_target,
-                  'snat_count':   r.snat_count
+                  'snat_source':    r.snat_source,
+                  'snat_out_iface': r.snat_out_iface,
+                  'snat_target':    r.snat_target,
+                  'snat_count':     r.snat_count
                 }) -%}
           {%- endfor -%}
           {{ out }}
