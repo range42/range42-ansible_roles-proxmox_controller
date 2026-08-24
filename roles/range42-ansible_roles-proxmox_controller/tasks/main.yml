@@ -354,6 +354,10 @@
   ansible.builtin.include_tasks: "./include/network/delete_network_extra_snat_rules.yaml"
   when: proxmox_vm_action == "network_delete_extra_snat_rules"
 
+- name: INCLUDE - ./include/network/list_network_snat_rules.yaml
+  ansible.builtin.include_tasks: "./include/network/list_network_snat_rules.yaml"
+  when: proxmox_vm_action == "network_list_snat_rules"
+
 #### #### #### #### #### #### #### #### #### #### #### #### #### #### #### ####
 #### #### #### #### #### #### #### #### #### #### #### #### #### #### #### ####
 #### #### #### #### #### #### #### #### #### #### #### #### #### #### #### ####

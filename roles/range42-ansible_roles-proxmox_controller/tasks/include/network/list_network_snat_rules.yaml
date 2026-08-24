@@ -1,0 +1,156 @@
+---
+##
+## LIST THE LIVE SNAT RULES OF THE HOST, grouped by source network.
+## Read only : nothing is created, deleted or reordered. The write side of the same
+## subject is delete_network_extra_snat_rules, and the two belong together.
+##
+## WHY IT EXISTS : the declared state and the live state disagree far more often than one
+## expects, and until now nothing could read the live side without changing it. An apply
+## is ifreload, which replays the vnet post-up hooks without ever playing the post-down
+## ones, so each apply appends one more rule per subnet at snat=1. Counting them is how
+## that drift becomes visible.
+##
+## WHY THE TARGET IS REPORTED : it tells the two producers apart. Proxmox writes SNAT
+## --to-source from its own post-up hook, the legacy bridge hack writes MASQUERADE from a
+## vmbr stanza. Same effect on traffic, but only the first one disappears when the SDN
+## subnet is set to snat=0 - so an operator seeing MASQUERADE knows the rule will come
+## back at the next ifreload, whatever the SDN says.
+##
+## WHY NOT THE API : these rules are not API objects. They come from a post-up hook in
+## /etc/network/interfaces.d, so the firewall endpoints, which only ever write the
+## PVEFW-* chains, cannot see them.
+##
+## WHERE IT RUNS : the host carrying the API address is ansible_connection local, so a
+## shell task there runs on the DEPLOYER and would report a clean zero having looked at
+## the wrong machine. Only proxmox_cli reaches the node over SSH, hence the delegation.
+##
+## NO INPUT, ON PURPOSE : like the three SDN list actions, this one always returns
+## everything and leaves filtering to the caller. A per-CIDR variant would cost one
+## Ansible run per subnet, which for a four-network scenario is four runs to answer a
+## single question.
+##
+## DO NOT CHANGE
+##  1. the iptables read is captured and its exit status checked BEFORE anything is
+##     counted. Piping straight into a grep turns a missing binary into a count of zero,
+##     and the action then reports a host it never managed to read.
+##  2. the grep that follows may legitimately find nothing - a host with no SNAT rule at
+##     all is a valid answer, not a failure. That is safe here only BECAUSE the read
+##     above is checked separately.
+##  3. no awk. The neighbouring write action parses with grep and sed for the same
+##     reason : one less language between Jinja, YAML and the shell.
+##  4. rules with no -s are skipped. A POSTROUTING rule that scopes no source network is
+##     not about a subnet's egress, so it is not this action's business.
+##
+
+- block:
+    ####
+    ####
+    ## Without this the delegation below resolves to an empty host and the failure reads
+    ## as a connection problem instead of an incomplete inventory.
+    ####
+
+    - name: NETWORK - LIST SNAT RULES - CHECK THE NODE IS REACHABLE OVER SSH
+      ansible.builtin.assert:
+        that:
+          - groups['proxmox_cli'] is defined
+          - (groups['proxmox_cli'] | default([]) | length) > 0
+        fail_msg: >-
+          this action needs SSH access to the hypervisor, which the inventory declares in
+          the proxmox_cli group. That group is missing or empty, so there is no host to run
+          iptables on. The API host cannot be used, it is declared connection local.
+        success_msg: "iptables will run on {{ groups['proxmox_cli'] | default([]) | first | default('') }}"
+
+    ####
+    ####
+
+    - name: NETWORK - LIST SNAT RULES - READ AND GROUP THE LIVE NAT RULES
+      ## iptables lives in /usr/sbin, not always on a non interactive shell's PATH.
+      environment:
+        PATH: "/usr/sbin:/sbin:/usr/bin:/bin"
+      ansible.builtin.shell: |
+        set -u
+
+        command -v iptables >/dev/null 2>&1 || {
+          echo "list_snat_rules: iptables not found on $(hostname), PATH=$PATH" >&2
+          exit 1
+        }
+
+        ## captured, and its status checked, so a read failure cannot look like an empty chain
+        table=$(iptables -t nat -S POSTROUTING) || {
+          echo "list_snat_rules: cannot read the nat table on $(hostname)" >&2
+          exit 1
+        }
+
+        ## one line per rule that scopes a source network, then grouped by (source, target).
+        ## An empty result here means the host carries no such rule, which is a real answer.
+        printf '%s\n' "$table" | grep -- ' -s ' | while IFS= read -r line ; do
+          src=${line#* -s }
+          src=${src%% *}
+          case "$line" in
+            *' -j '*) tgt=${line##* -j } ; tgt=${tgt%% *} ;;
+            *)        tgt="none" ;;
+          esac
+          [ -n "$src" ] && printf '%s %s\n' "$src" "$tgt"
+        done | sort | uniq -c | while read -r cnt src tgt ; do
+          printf '{"snat_source":"%s","snat_target":"%s","snat_count":%s}\n' "$src" "$tgt" "$cnt"
+        done
+      args:
+        executable: /bin/bash
+      ## by group, not by name, so the codename stays out of the role
+      delegate_to: "{{ groups['proxmox_cli'] | first }}"
+      register: proxmox_call
+      ## a read never changes anything, and reporting it as changed would make every
+      ## playbook that lists rules look like it reconfigured the host
+      changed_when: false
+
+    ####
+    ####
+
+    - name: NETWORK - LIST SNAT RULES - proxmox_call
+      debug:
+        var: proxmox_call
+
+    ####
+    ####
+    ## One record per (source network, target) pair. The prefixing follows the other
+    ## actions - subnet_* for subnets, iface_* for interfaces - so snat_* here, and
+    ## snat_host keeps the name the write action already uses.
+    ####
+
+    - name: NETWORK - LIST SNAT RULES - BUILD JSON
+      set_fact:
+        network_list_snat_rules: >-
+          {%- set out = [] -%}
+          {%- for line in (proxmox_call.stdout_lines | default([], true)) -%}
+          {%-   set r = line | from_json -%}
+          {%-   set _ = out.append({
+                  'action':       "network_list_snat_rules",
+                  'source':       "proxmox",
+                  'proxmox_node': proxmox_node,
+                  'snat_host':    groups['proxmox_cli'] | first,
+
+                  'snat_source':  r.snat_source,
+                  'snat_target':  r.snat_target,
+                  'snat_count':   r.snat_count
+                }) -%}
+          {%- endfor -%}
+          {{ out }}
+
+      when: proxmox_vm_action == "network_list_snat_rules"
+
+    ####
+    ####
+    ## This debug task is NOT cosmetic : the devkit helper extracts its payload with
+    ##   select(type=="object" and has($action)) | .[$action]
+    ## so a JSON key named EXACTLY like the action must appear in the task results.
+    ## Without it the devkit returns an empty stream and exits 0 (silent failure).
+    ####
+
+    - name: NETWORK - LIST SNAT RULES - PRINT JSON
+      debug:
+        var: network_list_snat_rules
+
+  ####
+  ####
+
+  when: proxmox_vm_action == "network_list_snat_rules"
