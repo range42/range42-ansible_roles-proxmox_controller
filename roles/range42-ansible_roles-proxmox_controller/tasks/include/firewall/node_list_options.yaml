@@ -1,0 +1,62 @@
+---
+##
+## READ THE FIREWALL OPTIONS AT THE NODE LEVEL.
+##
+## >>> READING WAS MISSING EVERYWHERE, AND THAT IS WHY NOTHING COULD BE VERIFIED <<<
+## Before this action the role could only PUT the enable switch, never GET it. So no write
+## was idempotent, no assert could check its premise, and every measurement had to go through
+## `cat /etc/pve/firewall/*.fw` by hand on the node.
+##
+## >>> AN ENABLED SWITCH AT THIS LEVEL DOES NOT MEAN TRAFFIC IS FILTERED <<<
+## Measured : with the per card `firewall` flag absent, NOTHING is filtered even with the
+## datacenter, the node and the guest switch all enabled. The card flag is the only switch
+## that filters. So `enable` read here is a necessary condition, never a sufficient one, and
+## a caller that treats it as a guarantee is reading more than this action says.
+##
+## Every field is published with `default(omit)`, so an option the api does not return for
+## this level simply does not appear rather than failing the play.
+##
+
+- block:
+    ####
+    ####
+
+    - name: FIREWALL - NODE - READ OPTIONS
+      uri:
+        url: "https://{{ proxmox_api_host }}/api2/json/nodes/{{ proxmox_node }}/firewall/options"
+        method: GET
+        headers:
+          Authorization: "PVEAPIToken={{ proxmox_api_user }}!{{ proxmox_api_token_id }}={{ proxmox_api_token_secret }}"
+        validate_certs: "{{ proxmox_api_validate_certs | default(false) }}"
+      register: proxmox_call
+
+    - name: FIREWALL - NODE - READ OPTIONS - proxmox_call
+      debug:
+        var: proxmox_call
+
+    ####
+    ####
+
+    - name: FIREWALL - NODE - READ OPTIONS - BUILD JSON
+      set_fact:
+        firewall_node_list_options:
+          action: "firewall_node_list_options"
+          source: "proxmox"
+          proxmox_node: "{{ proxmox_node }}"
+          node_fw_opt_enable: "{{ proxmox_call.json.data.enable | default(omit) }}"
+          node_fw_opt_log_level_in: "{{ proxmox_call.json.data.log_level_in | default(omit) }}"
+          node_fw_opt_log_level_out: "{{ proxmox_call.json.data.log_level_out | default(omit) }}"
+          node_fw_opt_nosmurfs: "{{ proxmox_call.json.data.nosmurfs | default(omit) }}"
+          node_fw_opt_tcpflags: "{{ proxmox_call.json.data.tcpflags | default(omit) }}"
+          node_fw_opt_ndp: "{{ proxmox_call.json.data.ndp | default(omit) }}"
+          node_fw_opt_nf_conntrack_max: "{{ proxmox_call.json.data.nf_conntrack_max | default(omit) }}"
+          node_fw_opt_protection_synflood: "{{ proxmox_call.json.data.protection_synflood | default(omit) }}"
+
+    - name: FIREWALL - NODE - READ OPTIONS - PRINT JSON
+      debug:
+        var: firewall_node_list_options
+
+  ####
+  ####
+
+  when: proxmox_vm_action == "firewall_node_list_options"

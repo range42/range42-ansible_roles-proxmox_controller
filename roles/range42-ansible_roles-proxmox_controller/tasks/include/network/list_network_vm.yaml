@@ -32,6 +32,37 @@
     ## "unexpected char '#'".
     ####
 
+    ####
+    ## >>> THE CARD OPTIONS ARE READ BY KEY, NEVER BY POSITION <<<
+    ##
+    ## A net line is a comma separated list of key=value pairs, and the api emits only the
+    ## keys the card actually carries. So the third segment is whichever option comes next in
+    ## the serialisation, not the firewall flag. Reading it by index returns the value of
+    ## whatever occupies that place.
+    ##
+    ## Measured on seven realistic cards, four disagreed with a read by key :
+    ##   bridge=vmbr0,mtu=1500,firewall=1  ->  index 2 gives 1500, the flag is 1
+    ##   bridge=vmbr0,link_down=1          ->  index 2 gives 1, THERE IS NO FLAG
+    ##   bridge=vmbr0,tag=143              ->  index 2 gives 143, there is no flag
+    ##   bridge=vmbr0,queues=4,rate=10     ->  index 2 gives 4, there is no flag
+    ##
+    ## The link_down case is the dangerous one. A card with NO firewall flag reads as
+    ## firewall=1, and the consumer that recreates a card branches on this key being defined,
+    ## so it writes firewall=1 onto a card that never had it. The per card flag is the only
+    ## switch that actually filters, so a guest with no accept rule becomes unreachable - on a
+    ## bundle whose contract says it preserves the flag. This role builds such cards itself :
+    ## add_network_vm rejects the empty segments, so a card created with a tag and no firewall
+    ## serialises as model=...,bridge=...,tag=... and lands exactly on the bug.
+    ##
+    ## The key stays ABSENT when the card carries no flag, which is what the bundle README
+    ## promises and what both consumers test for. Emitting a literal string instead would make
+    ## the key always defined and break the branch that handles a card without a flag.
+    ##
+    ## model and mac keep their positional read : the api normalises the model pair to
+    ## <model>=<MAC> and emits it FIRST, and it is the only pair whose key is a model name
+    ## rather than an option name.
+    ####
+
     - name: NETWORK - VM - LIST NETWORK INTERFACES - BUILD JSON
       set_fact:
         network_list_interfaces_vm: >-
@@ -45,12 +76,8 @@
                 'vm_vmnet_id'        : item.key | regex_replace('^net', '') | int,
                 'vm_network_type'    : item.value.split(',')[0].split('=',1)[0],
                 'vm_network_mac'     : item.value.split(',')[0].split('=',1)[1],
-                'vm_network_bridge'  : item.value.split(',')[1].split('=',1)[1],
-                'vm_network_firewall': (
-                  (item.value.split(',')[2].split('=',1)[1])
-                  if (item.value is defined and (item.value.split(',')|length) > 2 and '=' in item.value.split(',')[2])
-                  else omit
-                )
+                'vm_network_bridge'  : (dict(item.value.split(',') | select('search','=') | map('split','=',1) | list)).get('bridge', omit),
+                'vm_network_firewall': (dict(item.value.split(',') | select('search','=') | map('split','=',1) | list)).get('firewall', omit)
             } ]
           }}
       loop: "{{ proxmox_call.json.data | dict2items }}"
