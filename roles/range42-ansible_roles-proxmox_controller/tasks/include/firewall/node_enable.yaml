@@ -1,6 +1,114 @@
 ---
+##
+## TURN THE NODE FIREWALL ON - AND REFUSE TO DO IT BLIND.
+##
+## PUT /nodes/{node}/firewall/options with enable: 1.
+##
+## >>> MEASURED ON px-testing, 2026-08-26 <<<
+## `enable: 1` with ZERO rules is a DENY. Measured in both directions on a guest whose
+## card carried firewall=1 : host -> VM 3/3 refused, VM -> VM 3/3 refused, and 3/3
+## accepted again the moment the flag left the card. Being the hypervisor grants NO
+## exception : the filter is applied on the tap of the DESTINATION, not along the way.
+##
+## Applied to a NODE that has no accepted path to 8006 and to 22, that means losing the
+## web interface AND ssh at the same time, on the machine this role talks to in order to
+## fix anything. Recovery then needs physical or console access.
+##
+## So this action asserts the way back in BEFORE it opens anything. The guard that puts
+## those two rules in place is `firewall_node_enable_management_access`, and it is meant
+## to run first, not after.
+##
+## >>> THE PREDICATE BELOW EXISTS TWICE, ON PURPOSE AND AT A COST <<<
+## It is also in node_enable_management_access.yaml. The role holds 76 actions, each one
+## a self-contained file, and it uses include_tasks exactly zero times - sharing this
+## through an include would introduce a pattern the role does not have. The price is that
+## THE TWO COPIES MUST STAY IN SYNC : any change to what "well placed" means has to land
+## in both files. Nowhere else reads it.
+##
+## No escape hatch is provided. A flag that skips a lockout guard is how lockout guards
+## die ; if one is ever needed, it is a decision to take and to write down, not a default.
+##
 
 - block:
+    ####
+    ####
+    ## Read the chain fresh. What the caller believes about it does not count.
+    ####
+
+    - name: FIREWALL - NODE - ENABLE - READ THE CURRENT CHAIN
+      uri:
+        url: "https://{{ proxmox_api_host }}/api2/json/nodes/{{ proxmox_node }}/firewall/rules"
+        method: GET
+        headers:
+          Authorization: "PVEAPIToken={{ proxmox_api_user }}!{{ proxmox_api_token_id }}={{ proxmox_api_token_secret }}"
+        validate_certs: "{{ proxmox_api_validate_certs | default(false) }}"
+      register: proxmox_call_rules
+
+    ####
+    ## The barrier is the FIRST inbound DROP or REJECT. An ACCEPT below it accepts
+    ## nothing, so presence alone proves nothing - the position is the question.
+    ## 99999 is the sentinel for "no deny at all".
+    ####
+
+    - name: FIREWALL - NODE - ENABLE - WHERE THE CHAIN STARTS DENYING
+      set_fact:
+        _node_fw_first_deny_pos: >-
+          {{ (((proxmox_call_rules.json.data | default([], true))
+                | selectattr('type', 'defined') | selectattr('type', 'equalto', 'in')
+                | selectattr('action', 'defined') | selectattr('action', 'in', ['DROP', 'REJECT'])
+                | selectattr('pos', 'defined') | map(attribute='pos') | map('int') | list)
+              + [99999]) | sort | first }}
+        _node_fw_api_first_pos: >-
+          {{ (((proxmox_call_rules.json.data | default([], true))
+                | selectattr('type', 'defined') | selectattr('type', 'equalto', 'in')
+                | selectattr('action', 'defined') | selectattr('action', 'equalto', 'ACCEPT')
+                | selectattr('dport', 'defined')
+                | selectattr('dport', 'equalto', node_fw_api_port | default('8006') | string)
+                | selectattr('pos', 'defined') | map(attribute='pos') | map('int') | list)
+              + [99999]) | sort | first }}
+        _node_fw_ssh_first_pos: >-
+          {{ (((proxmox_call_rules.json.data | default([], true))
+                | selectattr('type', 'defined') | selectattr('type', 'equalto', 'in')
+                | selectattr('action', 'defined') | selectattr('action', 'equalto', 'ACCEPT')
+                | selectattr('dport', 'defined')
+                | selectattr('dport', 'equalto', node_fw_ssh_port | default('22') | string)
+                | selectattr('pos', 'defined') | map(attribute='pos') | map('int') | list)
+              + [99999]) | sort | first }}
+
+    ####
+    ## Separate task : keys of one set_fact are all evaluated against the state BEFORE
+    ## the task, so these two cannot read the three positions from the same one.
+    ####
+
+    - name: FIREWALL - NODE - ENABLE - IS THERE A WAY BACK IN, AND IS IT ABOVE THE DENY
+      set_fact:
+        _node_fw_has_api: "{{ (_node_fw_api_first_pos | int) < (_node_fw_first_deny_pos | int) }}"
+        _node_fw_has_ssh: "{{ (_node_fw_ssh_first_pos | int) < (_node_fw_first_deny_pos | int) }}"
+
+    - name: FIREWALL - NODE - ENABLE - REFUSE TO ARM A NODE WITH NO WAY BACK IN
+      ansible.builtin.assert:
+        that:
+          - _node_fw_has_api | bool
+          - _node_fw_has_ssh | bool
+        fail_msg: >-
+          Refused : arming the firewall of node {{ proxmox_node }} would lock this role out
+          of it. `enable: 1` with no accepted path is a DENY - measured on px-testing the
+          2026-08-26, in both directions, the hypervisor included. Read of the chain :
+          first inbound deny at position {{ _node_fw_first_deny_pos }} ;
+          api {{ node_fw_api_port | default('8006') }} accepted at
+          {{ _node_fw_api_first_pos }} ({{ 'above the deny' if _node_fw_has_api else 'MISSING or below the deny' }}) ;
+          ssh {{ node_fw_ssh_port | default('22') }} accepted at
+          {{ _node_fw_ssh_first_pos }} ({{ 'above the deny' if _node_fw_has_ssh else 'MISSING or below the deny' }}).
+          Run the action `firewall_node_enable_management_access` against this node first,
+          then run this one again. An ACCEPT that sits BELOW a DROP accepts nothing, so
+          moving it is not optional. If the way back in is already there but scoped to a
+          source that excludes the caller, this test does not see it - that is the source
+          model of NT-17.
+        success_msg: >-
+          way back in confirmed on {{ proxmox_node }} :
+          api at {{ _node_fw_api_first_pos }}, ssh at {{ _node_fw_ssh_first_pos }},
+          first deny at {{ _node_fw_first_deny_pos }} - arming the node firewall
+
     ####
     ####
 
