@@ -68,13 +68,16 @@
         that:
           - _vm_fw_has_ssh | bool
         fail_msg: >-
-          Refused : arming this guest would make it unreachable on ssh. A guest may be
-          isolated from everything except the plane that manages it.
-          Chain : first active inbound deny at {{ _vm_fw_first_deny_pos }} ;
-          ssh {{ vm_fw_ssh_port | default('22') }} at {{ _vm_fw_ssh_first_pos }} ({{ 'above the deny' if _vm_fw_has_ssh else 'MISSING, INACTIVE or below' }}).
-          Run `firewall_vm_enable_default_ssh_rules` on this guest first, then retry.
-          An ACCEPT below a DROP accepts nothing, and a rule stored without `enable` is
-          disabled : both read as present, neither protects.
+          Refused. Turning the firewall on for this guest would drop all inbound traffic to it,
+          SSH on port {{ vm_fw_ssh_port | default('22') }} included. A guest may be cut off from
+          the internet, from other guests and from students, but never from the machines that
+          administer it - recovering it would need the console.
+          What its rule chain says right now : SSH
+          {{ 'is not accepted by any active rule' if (_vm_fw_ssh_first_pos | int) >= 99999 else ('is accepted at position ' ~ _vm_fw_ssh_first_pos if _vm_fw_has_ssh else 'is accepted at position ' ~ _vm_fw_ssh_first_pos ~ ', but a blocking rule sits above it at position ' ~ _vm_fw_first_deny_pos ~ ', so that accept never runs') }} ;
+          and {{ 'no rule blocks inbound traffic explicitly, but with no accepted path the default policy drops it anyway' if (_vm_fw_first_deny_pos | int) >= 99999 else 'the first rule that blocks inbound traffic is at position ' ~ _vm_fw_first_deny_pos }}.
+          A rule that exists but is disabled does not count as accepted.
+          To fix this, add the default SSH rules first with the role action
+          `firewall_vm_enable_default_ssh_rules`, then run this one again.
         success_msg: >-
           ssh reachable on {{ vm_fw_ssh_port | default('22') }} at position
           {{ _vm_fw_ssh_first_pos }}, first active deny at {{ _vm_fw_first_deny_pos }} -

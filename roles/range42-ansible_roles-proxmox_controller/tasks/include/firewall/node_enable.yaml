@@ -97,15 +97,19 @@
           - _node_fw_has_api | bool
           - _node_fw_has_ssh | bool
         fail_msg: >-
-          Refused : arming node {{ proxmox_node }} would lock this role out of it. With no
-          accepted path, `enable: 1` is a DENY.
-          Chain : first active inbound deny at {{ _node_fw_first_deny_pos }} ;
-          api {{ node_fw_api_port | default('8006') }} at {{ _node_fw_api_first_pos }} ({{ 'above the deny' if _node_fw_has_api else 'MISSING, INACTIVE or below' }}) ;
-          ssh {{ node_fw_ssh_port | default('22') }} at {{ _node_fw_ssh_first_pos }} ({{ 'above the deny' if _node_fw_has_ssh else 'MISSING, INACTIVE or below' }}).
-          Run `firewall_node_enable_management_access` on this node first, then retry.
-          An ACCEPT below a DROP accepts nothing, and a rule stored without `enable` is
-          disabled : both read as present, neither protects. An accept scoped to a source
-          that excludes the caller is not seen here.
+          Refused. Turning the firewall on for node {{ proxmox_node }} would drop all inbound
+          traffic on it, including the Proxmox web interface on port {{ node_fw_api_port | default('8006') }}
+          and SSH on port {{ node_fw_ssh_port | default('22') }}. You would lose remote access
+          to this node, and getting it back would need console access.
+          What its rule chain says right now : the web interface port
+          {{ 'is not accepted by any active rule' if (_node_fw_api_first_pos | int) >= 99999 else ('is accepted at position ' ~ _node_fw_api_first_pos if _node_fw_has_api else 'is accepted at position ' ~ _node_fw_api_first_pos ~ ', but a blocking rule sits above it at position ' ~ _node_fw_first_deny_pos ~ ', so that accept never runs') }} ;
+          SSH {{ 'is not accepted by any active rule' if (_node_fw_ssh_first_pos | int) >= 99999 else ('is accepted at position ' ~ _node_fw_ssh_first_pos if _node_fw_has_ssh else 'is accepted at position ' ~ _node_fw_ssh_first_pos ~ ', but a blocking rule sits above it at position ' ~ _node_fw_first_deny_pos ~ ', so that accept never runs') }} ;
+          and {{ 'no rule blocks inbound traffic explicitly, but with no accepted path the default policy drops it anyway' if (_node_fw_first_deny_pos | int) >= 99999 else 'the first rule that blocks inbound traffic is at position ' ~ _node_fw_first_deny_pos }}.
+          A rule that exists but is disabled does not count as accepted.
+          To fix this, add the accepted paths first with the role action
+          `firewall_node_enable_management_access`, then run this one again.
+          If your accept is restricted to specific source addresses, this check does not verify
+          that the caller is among them.
         success_msg: >-
           way back in confirmed on {{ proxmox_node }} :
           api at {{ _node_fw_api_first_pos }}, ssh at {{ _node_fw_ssh_first_pos }},
