@@ -102,8 +102,8 @@
           Run the action `firewall_node_enable_management_access` against this node first,
           then run this one again. An ACCEPT that sits BELOW a DROP accepts nothing, so
           moving it is not optional. If the way back in is already there but scoped to a
-          source that excludes the caller, this test does not see it - that is the source
-          model of NT-17.
+          source that excludes the caller, this test does not see it : widening management
+          access to its several legitimate origins is separate work.
         success_msg: >-
           way back in confirmed on {{ proxmox_node }} :
           api at {{ _node_fw_api_first_pos }}, ssh at {{ _node_fw_ssh_first_pos }},

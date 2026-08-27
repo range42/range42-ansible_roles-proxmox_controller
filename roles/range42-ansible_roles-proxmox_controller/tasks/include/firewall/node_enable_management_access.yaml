@@ -59,9 +59,9 @@
     ## nothing. What is load bearing is that BOTH sit above the first deny.
     ##
     ## NOT covered here, on purpose : `source` is not part of the test. A rule scoped to
-    ## a source that does not include the caller reads as present and is skipped. That is
-    ## the source model of NT-17, which widens management access to internet, deployer-cli,
-    ## backend-api and deployer-ui ; it is not this correction.
+    ## a source that does not include the caller reads as present and is skipped. Widening
+    ## management access to its several legitimate origins - the internet, the deployer, the
+    ## backend api and the ui - is separate work, and it is not this correction.
     ####
 
     - name: FIREWALL - NODE - ENABLE MANAGEMENT ACCESS - WHERE THE CHAIN STARTS DENYING
