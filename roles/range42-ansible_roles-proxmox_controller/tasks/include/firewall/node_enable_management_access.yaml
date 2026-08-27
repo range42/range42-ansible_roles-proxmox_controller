@@ -167,13 +167,27 @@
           source: "proxmox"
           proxmox_node: "{{ proxmox_node }}"
 
+          ## `_requested` is what the caller asked for, `_before` is what the chain actually
+          ## held when it was read. Publishing only the first is what the old output did, and
+          ## it read as a measurement while being an input : `api_pos: 0` looked like *the
+          ## accept sits at 0* when it meant *we asked for 0*. The measured values existed
+          ## already, in the debug task above, which the devkit helper does NOT extract - so
+          ## they were computed and thrown away. `_before` follows the naming the role already
+          ## uses for an observation, as in `snat_before` of the SNAT reconciliation.
           api_port: "{{ node_fw_api_port | default('8006') }}"
-          api_pos: "{{ node_fw_api_pos | default(0) }}"
+          api_pos_requested: "{{ node_fw_api_pos | default(0) }}"
+          api_pos_before: "{{ _node_fw_api_first_pos }}"
           api_already_present: "{{ _node_fw_has_api }}"
 
           ssh_port: "{{ node_fw_ssh_port | default('22') }}"
-          ssh_pos: "{{ node_fw_ssh_pos | default(1) }}"
+          ssh_pos_requested: "{{ node_fw_ssh_pos | default(1) }}"
+          ssh_pos_before: "{{ _node_fw_ssh_first_pos }}"
           ssh_already_present: "{{ _node_fw_has_ssh }}"
+
+          ## The barrier itself. Without it a reader cannot tell WHY the two booleans above
+          ## are what they are : an accept at 3 is protective under a deny at 9 and useless
+          ## under a deny at 1. 99999 is the sentinel for a chain with no deny at all.
+          first_deny_pos_before: "{{ _node_fw_first_deny_pos }}"
 
           mgmt_source: "{{ node_fw_mgmt_source | default(omit) }}"
 
