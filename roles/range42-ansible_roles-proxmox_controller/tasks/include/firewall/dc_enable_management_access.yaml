@@ -190,34 +190,47 @@
     ####
     ####
 
+    ####
+    ## ONE OBJECT PER RULE, NOT ONE OBJECT PER CALL.
+    ##
+    ## This action manages TWO rules and used to report them flattened into two field
+    ## families inside a single object. That breaks the devkit contract, where every reading
+    ## is one json object per line and callers compose on that. Flattened, asking "what did
+    ## you actually post" meant knowing both prefixes by heart.
+    ##
+    ## Published as a LIST : the wrapper flattens it like every other list action.
+    ####
+
     - name: FIREWALL - DATACENTER - ENABLE MANAGEMENT ACCESS - BUILD JSON
       set_fact:
-        firewall_dc_enable_management_access:
-          action: "firewall_dc_enable_management_access"
-          source: "proxmox"
-          proxmox_node: "{{ proxmox_node }}"
+        firewall_dc_enable_management_access: >-
+          {{ [
+            {
+              'action': "firewall_dc_enable_management_access",
+              'source': "proxmox",
+              'proxmox_node': proxmox_node,
+              'dc_fw_rule': "api",
+              'dc_fw_dport': (dc_fw_api_port | default('8006')),
+              'dc_fw_pos_requested': (dc_fw_api_pos | default(0)),
+              'dc_fw_pos_before': _dc_fw_api_first_pos,
+              'dc_fw_already_present': _dc_fw_has_api,
+              'dc_fw_first_deny_pos_before': _dc_fw_first_deny_pos,
+              'dc_fw_mgmt_source': (dc_fw_mgmt_source | default(omit)),
+            },
+            {
+              'action': "firewall_dc_enable_management_access",
+              'source': "proxmox",
+              'proxmox_node': proxmox_node,
+              'dc_fw_rule': "ssh",
+              'dc_fw_dport': (dc_fw_ssh_port | default('22')),
+              'dc_fw_pos_requested': (dc_fw_ssh_pos | default(1)),
+              'dc_fw_pos_before': _dc_fw_ssh_first_pos,
+              'dc_fw_already_present': _dc_fw_has_ssh,
+              'dc_fw_first_deny_pos_before': _dc_fw_first_deny_pos,
+              'dc_fw_mgmt_source': (dc_fw_mgmt_source | default(omit)),
+            }
+          ] }}
 
-          ## `_requested` is the caller's parameter, `_before` is what the chain actually
-          ## held when it was read. Publishing only the first reads as a measurement while
-          ## being an input.
-          api_port: "{{ dc_fw_api_port | default('8006') }}"
-          api_pos_requested: "{{ dc_fw_api_pos | default(0) }}"
-          api_pos_before: "{{ _dc_fw_api_first_pos }}"
-          api_already_present: "{{ _dc_fw_has_api }}"
-
-          ssh_port: "{{ dc_fw_ssh_port | default('22') }}"
-          ssh_pos_requested: "{{ dc_fw_ssh_pos | default(1) }}"
-          ssh_pos_before: "{{ _dc_fw_ssh_first_pos }}"
-          ssh_already_present: "{{ _dc_fw_has_ssh }}"
-
-          first_deny_pos_before: "{{ _dc_fw_first_deny_pos }}"
-          mgmt_source: "{{ dc_fw_mgmt_source | default(omit) }}"
-
-    ####
-    ## This debug task is NOT cosmetic : the devkit helper extracts its payload with
-    ##   select(type=="object" and has($action)) | .[$action]
-    ## so a JSON key named EXACTLY like the action must appear in the task results.
-    ####
 
     - name: FIREWALL - DATACENTER - ENABLE MANAGEMENT ACCESS - PRINT JSON
       debug:

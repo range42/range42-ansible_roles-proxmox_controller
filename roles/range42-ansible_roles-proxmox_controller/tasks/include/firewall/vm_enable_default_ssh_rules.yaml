@@ -117,27 +117,43 @@
     ####
     ####
 
+    ####
+    ## ONE OBJECT PER RULE, NOT ONE OBJECT PER CALL.
+    ##
+    ## This action manages TWO rules and used to report them flattened into two field
+    ## families inside a single object. That breaks the devkit contract, where every reading
+    ## is one json object per line and callers compose on that. Flattened, asking "what did
+    ## you actually post" meant knowing both prefixes by heart.
+    ##
+    ## Published as a LIST : the wrapper flattens it like every other list action.
+    ####
+
     - name: FIREWALL - VM - ENABLE DEFAULT SSH RULES - BUILD JSON
       set_fact:
-        firewall_vm_enable_default_ssh_rules:
-          action: "firewall_vm_enable_default_ssh_rules"
-          source: "proxmox"
-          proxmox_node: "{{ proxmox_node }}"
-          vm_id: "{{ vm_id }}"
+        firewall_vm_enable_default_ssh_rules: >-
+          {{ [
+            {
+              'action': "firewall_vm_enable_default_ssh_rules",
+              'source': "proxmox",
+              'proxmox_node': proxmox_node,
+              'vm_id': vm_id,
+              'vm_fw_rule': "ssh_accept",
+              'vm_fw_dport': "22",
+              'vm_fw_pos_requested': (vm_fw_ssh_accept_pos | default(0)),
+              'vm_fw_already_present': _vm_fw_has_ssh_accept,
+              'vm_fw_mgmt_source': (vm_fw_mgmt_source | default(omit)),
+            },
+            {
+              'action': "firewall_vm_enable_default_ssh_rules",
+              'source': "proxmox",
+              'proxmox_node': proxmox_node,
+              'vm_id': vm_id,
+              'vm_fw_rule': "drop_all",
+              'vm_fw_pos_requested': (vm_fw_drop_all_pos | default(1)),
+              'vm_fw_already_present': _vm_fw_has_drop_all,
+            }
+          ] }}
 
-          ssh_accept_already_present: "{{ _vm_fw_has_ssh_accept }}"
-          drop_all_already_present: "{{ _vm_fw_has_drop_all }}"
-          ssh_accept_pos: "{{ vm_fw_ssh_accept_pos | default(0) }}"
-          drop_all_pos: "{{ vm_fw_drop_all_pos | default(1) }}"
-          mgmt_source: "{{ vm_fw_mgmt_source | default(omit) }}"
-
-    ####
-    ####
-    ## This debug task is NOT cosmetic : the devkit helper extracts its payload with
-    ##   select(type=="object" and has($action)) | .[$action]
-    ## so a JSON key named EXACTLY like the action must appear in the task results.
-    ## Without it the devkit returns an empty stream and exits 0 (silent failure).
-    ####
 
     - name: FIREWALL - VM - ENABLE DEFAULT SSH RULES - PRINT JSON
       debug:

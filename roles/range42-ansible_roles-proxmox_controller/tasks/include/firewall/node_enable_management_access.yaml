@@ -189,44 +189,47 @@
     ####
     ####
 
+    ####
+    ## ONE OBJECT PER RULE, NOT ONE OBJECT PER CALL.
+    ##
+    ## This action manages TWO rules and used to report them flattened into two field
+    ## families inside a single object. That breaks the devkit contract, where every reading
+    ## is one json object per line and callers compose on that. Flattened, asking "what did
+    ## you actually post" meant knowing both prefixes by heart.
+    ##
+    ## Published as a LIST : the wrapper flattens it like every other list action.
+    ####
+
     - name: FIREWALL - NODE - ENABLE MANAGEMENT ACCESS - BUILD JSON
       set_fact:
-        firewall_node_enable_management_access:
-          action: "firewall_node_enable_management_access"
-          source: "proxmox"
-          proxmox_node: "{{ proxmox_node }}"
+        firewall_node_enable_management_access: >-
+          {{ [
+            {
+              'action': "firewall_node_enable_management_access",
+              'source': "proxmox",
+              'proxmox_node': proxmox_node,
+              'node_fw_rule': "api",
+              'node_fw_dport': (node_fw_api_port | default('8006')),
+              'node_fw_pos_requested': (node_fw_api_pos | default(0)),
+              'node_fw_pos_before': _node_fw_api_first_pos,
+              'node_fw_already_present': _node_fw_has_api,
+              'node_fw_first_deny_pos_before': _node_fw_first_deny_pos,
+              'node_fw_mgmt_source': (node_fw_mgmt_source | default(omit)),
+            },
+            {
+              'action': "firewall_node_enable_management_access",
+              'source': "proxmox",
+              'proxmox_node': proxmox_node,
+              'node_fw_rule': "ssh",
+              'node_fw_dport': (node_fw_ssh_port | default('22')),
+              'node_fw_pos_requested': (node_fw_ssh_pos | default(1)),
+              'node_fw_pos_before': _node_fw_ssh_first_pos,
+              'node_fw_already_present': _node_fw_has_ssh,
+              'node_fw_first_deny_pos_before': _node_fw_first_deny_pos,
+              'node_fw_mgmt_source': (node_fw_mgmt_source | default(omit)),
+            }
+          ] }}
 
-          ## `_requested` is what the caller asked for, `_before` is what the chain actually
-          ## held when it was read. Publishing only the first is what the old output did, and
-          ## it read as a measurement while being an input : `api_pos: 0` looked like *the
-          ## accept sits at 0* when it meant *we asked for 0*. The measured values existed
-          ## already, in the debug task above, which the devkit helper does NOT extract - so
-          ## they were computed and thrown away. `_before` follows the naming the role already
-          ## uses for an observation, as in `snat_before` of the SNAT reconciliation.
-          api_port: "{{ node_fw_api_port | default('8006') }}"
-          api_pos_requested: "{{ node_fw_api_pos | default(0) }}"
-          api_pos_before: "{{ _node_fw_api_first_pos }}"
-          api_already_present: "{{ _node_fw_has_api }}"
-
-          ssh_port: "{{ node_fw_ssh_port | default('22') }}"
-          ssh_pos_requested: "{{ node_fw_ssh_pos | default(1) }}"
-          ssh_pos_before: "{{ _node_fw_ssh_first_pos }}"
-          ssh_already_present: "{{ _node_fw_has_ssh }}"
-
-          ## The barrier itself. Without it a reader cannot tell WHY the two booleans above
-          ## are what they are : an accept at 3 is protective under a deny at 9 and useless
-          ## under a deny at 1. 99999 is the sentinel for a chain with no deny at all.
-          first_deny_pos_before: "{{ _node_fw_first_deny_pos }}"
-
-          mgmt_source: "{{ node_fw_mgmt_source | default(omit) }}"
-
-    ####
-    ####
-    ## This debug task is NOT cosmetic : the devkit helper extracts its payload with
-    ##   select(type=="object" and has($action)) | .[$action]
-    ## so a JSON key named EXACTLY like the action must appear in the task results.
-    ## Without it the devkit returns an empty stream and exits 0 (silent failure).
-    ####
 
     - name: FIREWALL - NODE - ENABLE MANAGEMENT ACCESS - PRINT JSON
       debug:
