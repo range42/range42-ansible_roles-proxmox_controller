@@ -40,22 +40,74 @@
         validate_certs: "{{ proxmox_api_validate_certs | default(false) }}"
       register: proxmox_call_rules
 
-    - name: FIREWALL - NODE - ENABLE MANAGEMENT ACCESS - WHAT IS ALREADY IN PLACE
+    ####
+    ## >>> PRESENCE IS NOT PROTECTION : THE ACCEPT MUST SIT ABOVE THE FIRST DENY <<<
+    ## This test used to ask only "is there an ACCEPT on 8006 somewhere in the chain".
+    ## The chain is ordered, so an ACCEPT below a DROP accepts nothing - the very thing
+    ## the header of this file warns about. A guard that answers "already in place" for a
+    ## rule that grants nothing SKIPS ITSELF and leaves the node unprotected while
+    ## reporting it protected. So the position is now part of the question.
+    ##
+    ## The barrier is the FIRST inbound DROP or REJECT. Both are barriers : a REJECT
+    ## blocks just as surely, it only differs in what it answers back.
+    ##
+    ## 99999 is the sentinel for "no deny at all", appended so `first` always has
+    ## something to return on an empty chain. A fresh node has no rules, both accepts
+    ## then read as absent and both get posted, which is the wanted behaviour.
+    ##
+    ## Two ACCEPTs on DISJOINT ports commute : 8006-before-22 or 22-before-8006 changes
+    ## nothing. What is load bearing is that BOTH sit above the first deny.
+    ##
+    ## NOT covered here, on purpose : `source` is not part of the test. A rule scoped to
+    ## a source that does not include the caller reads as present and is skipped. That is
+    ## the source model of NT-17, which widens management access to internet, deployer-cli,
+    ## backend-api and deployer-ui ; it is not this correction.
+    ####
+
+    - name: FIREWALL - NODE - ENABLE MANAGEMENT ACCESS - WHERE THE CHAIN STARTS DENYING
       set_fact:
-        _node_fw_has_api: >-
-          {{ (proxmox_call_rules.json.data | default([], true))
-             | selectattr('type', 'defined') | selectattr('type', 'equalto', 'in')
-             | selectattr('action', 'defined') | selectattr('action', 'equalto', 'ACCEPT')
-             | selectattr('dport', 'defined')
-             | selectattr('dport', 'equalto', node_fw_api_port | default('8006') | string)
-             | list | length > 0 }}
-        _node_fw_has_ssh: >-
-          {{ (proxmox_call_rules.json.data | default([], true))
-             | selectattr('type', 'defined') | selectattr('type', 'equalto', 'in')
-             | selectattr('action', 'defined') | selectattr('action', 'equalto', 'ACCEPT')
-             | selectattr('dport', 'defined')
-             | selectattr('dport', 'equalto', node_fw_ssh_port | default('22') | string)
-             | list | length > 0 }}
+        _node_fw_first_deny_pos: >-
+          {{ (((proxmox_call_rules.json.data | default([], true))
+                | selectattr('type', 'defined') | selectattr('type', 'equalto', 'in')
+                | selectattr('action', 'defined') | selectattr('action', 'in', ['DROP', 'REJECT'])
+                | selectattr('pos', 'defined') | map(attribute='pos') | map('int') | list)
+              + [99999]) | sort | first }}
+        _node_fw_api_first_pos: >-
+          {{ (((proxmox_call_rules.json.data | default([], true))
+                | selectattr('type', 'defined') | selectattr('type', 'equalto', 'in')
+                | selectattr('action', 'defined') | selectattr('action', 'equalto', 'ACCEPT')
+                | selectattr('dport', 'defined')
+                | selectattr('dport', 'equalto', node_fw_api_port | default('8006') | string)
+                | selectattr('pos', 'defined') | map(attribute='pos') | map('int') | list)
+              + [99999]) | sort | first }}
+        _node_fw_ssh_first_pos: >-
+          {{ (((proxmox_call_rules.json.data | default([], true))
+                | selectattr('type', 'defined') | selectattr('type', 'equalto', 'in')
+                | selectattr('action', 'defined') | selectattr('action', 'equalto', 'ACCEPT')
+                | selectattr('dport', 'defined')
+                | selectattr('dport', 'equalto', node_fw_ssh_port | default('22') | string)
+                | selectattr('pos', 'defined') | map(attribute='pos') | map('int') | list)
+              + [99999]) | sort | first }}
+
+    ####
+    ## A separate task on purpose : the three positions above must be resolved before
+    ## these two can read them. Keys of one single set_fact are all evaluated against the
+    ## state BEFORE the task, so they cannot reference each other.
+    ####
+
+    - name: FIREWALL - NODE - ENABLE MANAGEMENT ACCESS - WHAT IS ALREADY IN PLACE, AND WELL PLACED
+      set_fact:
+        _node_fw_has_api: "{{ (_node_fw_api_first_pos | int) < (_node_fw_first_deny_pos | int) }}"
+        _node_fw_has_ssh: "{{ (_node_fw_ssh_first_pos | int) < (_node_fw_first_deny_pos | int) }}"
+
+    - name: FIREWALL - NODE - ENABLE MANAGEMENT ACCESS - THE CHAIN AS IT READS NOW
+      debug:
+        msg: >-
+          first deny at {{ _node_fw_first_deny_pos }} :
+          api {{ node_fw_api_port | default('8006') }} at {{ _node_fw_api_first_pos }} ->
+          {{ 'protected' if _node_fw_has_api else 'NOT PROTECTED, will be posted' }} ;
+          ssh {{ node_fw_ssh_port | default('22') }} at {{ _node_fw_ssh_first_pos }} ->
+          {{ 'protected' if _node_fw_has_ssh else 'NOT PROTECTED, will be posted' }}
 
     ####
     ####
