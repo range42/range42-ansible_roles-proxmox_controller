@@ -90,16 +90,13 @@
           - _dc_fw_has_ssh | bool
         fail_msg: >-
           Refused : arming the datacenter firewall would lock this role out of EVERY node,
-          not one. `enable: 1` with no accepted path is a DENY - measured the 2026-08-27, in
-          both directions, the hypervisor included. Read of the datacenter chain :
-          first inbound deny at position {{ _dc_fw_first_deny_pos }} ;
-          api {{ dc_fw_api_port | default('8006') }} accepted and ACTIVE at
-          {{ _dc_fw_api_first_pos }} ({{ 'above the deny' if _dc_fw_has_api else 'MISSING, INACTIVE, or below the deny' }}) ;
-          ssh {{ dc_fw_ssh_port | default('22') }} accepted and ACTIVE at
-          {{ _dc_fw_ssh_first_pos }} ({{ 'above the deny' if _dc_fw_has_ssh else 'MISSING, INACTIVE, or below the deny' }}).
-          Run the action `firewall_dc_enable_management_access` first, then run this one
-          again. An ACCEPT below a DROP accepts nothing, and a rule stored without `enable`
-          is disabled and grants nothing - both read as present and neither protects.
+          not one. With no accepted path, `enable: 1` is a DENY.
+          Chain : first active inbound deny at {{ _dc_fw_first_deny_pos }} ;
+          api {{ dc_fw_api_port | default('8006') }} at {{ _dc_fw_api_first_pos }} ({{ 'above the deny' if _dc_fw_has_api else 'MISSING, INACTIVE or below' }}) ;
+          ssh {{ dc_fw_ssh_port | default('22') }} at {{ _dc_fw_ssh_first_pos }} ({{ 'above the deny' if _dc_fw_has_ssh else 'MISSING, INACTIVE or below' }}).
+          Run `firewall_dc_enable_management_access` first, then retry.
+          An ACCEPT below a DROP accepts nothing, and a rule stored without `enable` is
+          disabled : both read as present, neither protects.
         success_msg: >-
           way back in confirmed at the datacenter :
           api at {{ _dc_fw_api_first_pos }}, ssh at {{ _dc_fw_ssh_first_pos }},

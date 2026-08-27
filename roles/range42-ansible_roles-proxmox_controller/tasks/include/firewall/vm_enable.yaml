@@ -69,15 +69,12 @@
           - _vm_fw_has_ssh | bool
         fail_msg: >-
           Refused : arming this guest would make it unreachable on ssh. A guest may be
-          isolated from the internet, from other guests and from students - it must never be
-          isolated from the plane that manages it. Read of the chain :
-          first active inbound deny at position {{ _vm_fw_first_deny_pos }} ;
-          ssh {{ vm_fw_ssh_port | default('22') }} accepted and ACTIVE at
-          {{ _vm_fw_ssh_first_pos }} ({{ 'above the deny' if _vm_fw_has_ssh else 'MISSING, INACTIVE, or below the deny' }}).
-          Run the action `firewall_vm_enable_default_ssh_rules` against this guest first,
-          then run this one again. An ACCEPT below a DROP accepts nothing, and a rule stored
-          without `enable` is disabled and grants nothing - both read as present and neither
-          protects.
+          isolated from everything except the plane that manages it.
+          Chain : first active inbound deny at {{ _vm_fw_first_deny_pos }} ;
+          ssh {{ vm_fw_ssh_port | default('22') }} at {{ _vm_fw_ssh_first_pos }} ({{ 'above the deny' if _vm_fw_has_ssh else 'MISSING, INACTIVE or below' }}).
+          Run `firewall_vm_enable_default_ssh_rules` on this guest first, then retry.
+          An ACCEPT below a DROP accepts nothing, and a rule stored without `enable` is
+          disabled : both read as present, neither protects.
         success_msg: >-
           ssh reachable on {{ vm_fw_ssh_port | default('22') }} at position
           {{ _vm_fw_ssh_first_pos }}, first active deny at {{ _vm_fw_first_deny_pos }} -
