@@ -1,0 +1,78 @@
+---
+##
+## APPLY ONE FIREWALL RULE ON THE DATACENTER.
+##
+## POST /cluster/firewall/rules
+##
+## The cluster-level counterpart of node_apply_iptables_rule, same parameter shape under a
+## dc_fw_ prefix. Proxmox applies these rules to every node's host chain, so one rule here
+## covers a node that does not exist yet - which is why the management guard belongs at
+## this level rather than per node.
+##
+## dc_fw_pos is worth passing. Rules are evaluated in order, so a rule whose position is
+## left to the API default lands wherever the default happens to be, which decides whether
+## it takes effect at all.
+##
+## dc_fw_enable is worth passing too, and for a blunter reason : a rule posted without it
+## is stored DISABLED. It appears in the configuration, it reads as present, and it grants
+## nothing. Measured the 2026-08-27 on the node-level guard, which had shipped that way.
+##
+
+- block:
+    ####
+    ####
+
+    - name: FIREWALL - DATACENTER - APPLY FW RULE
+      uri:
+        url: "https://{{ proxmox_api_host }}/api2/json/cluster/firewall/rules"
+        method: POST
+        headers:
+          Authorization: "PVEAPIToken={{ proxmox_api_user }}!{{ proxmox_api_token_id }}={{ proxmox_api_token_secret }}"
+        body_format: json
+        body:
+          action: "{{ dc_fw_action }}"                        # ACCEPT | DROP | REJECT
+          type: "{{ dc_fw_type }}"                            # in | out | forward | group
+
+          iface: "{{ dc_fw_iface | default(omit) }}"          # STR
+          source: "{{ dc_fw_source | default(omit) }}"        # STR
+          dest: "{{ dc_fw_dest | default(omit) }}"            # STR
+          proto: "{{ dc_fw_proto | default(omit) }}"          # STR
+          dport: "{{ dc_fw_dport | default(omit) }}"          # STR
+          sport: "{{ dc_fw_sport | default(omit) }}"          # STR
+          enable: "{{ dc_fw_enable | default(omit) }}"        # BOOL, sans lui la regle est INERTE
+          comment: "{{ dc_fw_comment | default(omit) }}"      # STR
+          log: "{{ dc_fw_log | default(omit) }}"              # nolog | emerg .. debug
+          pos: "{{ dc_fw_pos | default(omit) }}"              # INT
+        validate_certs: "{{ proxmox_api_validate_certs | default(false) }}"
+      register: proxmox_call
+
+    - name: FIREWALL - DATACENTER - APPLY FW RULE - PRINT proxmox_call
+      debug:
+        var: proxmox_call
+
+    ####
+    ####
+
+    - name: FIREWALL - DATACENTER - APPLY FW RULE - BUILD JSON
+      set_fact:
+        firewall_dc_apply_iptables_rule:
+          action: "firewall_dc_apply_iptables_rule"
+          source: "proxmox"
+          proxmox_node: "{{ proxmox_node }}"
+
+          dc_fw_action: "{{ dc_fw_action }}"
+          dc_fw_type: "{{ dc_fw_type }}"
+          dc_fw_dport: "{{ dc_fw_dport | default(omit) }}"
+          dc_fw_proto: "{{ dc_fw_proto | default(omit) }}"
+          dc_fw_enable: "{{ dc_fw_enable | default(omit) }}"
+          dc_fw_pos: "{{ dc_fw_pos | default(omit) }}"
+          dc_fw_comment: "{{ dc_fw_comment | default(omit) }}"
+
+    - name: FIREWALL - DATACENTER - APPLY FW RULE - PRINT JSON
+      debug:
+        var: firewall_dc_apply_iptables_rule
+
+  ####
+  ####
+
+  when: proxmox_vm_action == "firewall_dc_apply_iptables_rule"

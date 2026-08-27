@@ -1,0 +1,50 @@
+---
+##
+## DELETE ONE FIREWALL RULE OF ONE NODE, BY POSITION.
+##
+## DELETE /nodes/{node}/firewall/rules/{pos}
+##
+## >>> THE POSITION IS A MOVING TARGET <<<
+## Proxmox renumbers the chain after every deletion, and inserting a rule shifts everything
+## below it. So a position read earlier is stale by the time it is used. Measured at guest
+## level the 2026-08-26 : deleting position 0 of a two-rule chain renumbered the survivor
+## from 1 to 0. Read the chain immediately before deleting, or delete from the highest
+## position downwards.
+##
+
+- block:
+    ####
+    ####
+
+    - name: FIREWALL - NODE - DELETE FW RULE
+      uri:
+        url: "https://{{ proxmox_api_host }}/api2/json/nodes/{{ proxmox_node }}/firewall/rules/{{ node_fw_pos }}"
+        method: DELETE
+        headers:
+          Authorization: "PVEAPIToken={{ proxmox_api_user }}!{{ proxmox_api_token_id }}={{ proxmox_api_token_secret }}"
+        validate_certs: "{{ proxmox_api_validate_certs | default(false) }}"
+      register: proxmox_call
+
+    - name: FIREWALL - NODE - DELETE FW RULE - PRINT proxmox_call
+      debug:
+        var: proxmox_call
+
+    ####
+    ####
+
+    - name: FIREWALL - NODE - DELETE FW RULE - BUILD JSON
+      set_fact:
+        firewall_node_delete_iptables_rule:
+          action: "firewall_node_delete_iptables_rule"
+          source: "proxmox"
+          proxmox_node: "{{ proxmox_node }}"
+          node_fw_pos: "{{ node_fw_pos }}"
+
+    - name: FIREWALL - NODE - DELETE FW RULE - PRINT JSON
+      debug:
+        var: firewall_node_delete_iptables_rule
+
+  ####
+  ####
+
+  when: proxmox_vm_action == "firewall_node_delete_iptables_rule"

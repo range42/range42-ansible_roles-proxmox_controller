@@ -56,6 +56,8 @@
           {{ (((proxmox_call_rules.json.data | default([], true))
                 | selectattr('type', 'defined') | selectattr('type', 'equalto', 'in')
                 | selectattr('action', 'defined') | selectattr('action', 'in', ['DROP', 'REJECT'])
+                | selectattr('enable', 'defined')
+                | rejectattr('enable', 'equalto', 0) | rejectattr('enable', 'equalto', '0')
                 | selectattr('pos', 'defined') | map(attribute='pos') | map('int') | list)
               + [99999]) | sort | first }}
         _node_fw_api_first_pos: >-
@@ -64,6 +66,8 @@
                 | selectattr('action', 'defined') | selectattr('action', 'equalto', 'ACCEPT')
                 | selectattr('dport', 'defined')
                 | selectattr('dport', 'equalto', node_fw_api_port | default('8006') | string)
+                | selectattr('enable', 'defined')
+                | rejectattr('enable', 'equalto', 0) | rejectattr('enable', 'equalto', '0')
                 | selectattr('pos', 'defined') | map(attribute='pos') | map('int') | list)
               + [99999]) | sort | first }}
         _node_fw_ssh_first_pos: >-
@@ -72,6 +76,8 @@
                 | selectattr('action', 'defined') | selectattr('action', 'equalto', 'ACCEPT')
                 | selectattr('dport', 'defined')
                 | selectattr('dport', 'equalto', node_fw_ssh_port | default('22') | string)
+                | selectattr('enable', 'defined')
+                | rejectattr('enable', 'equalto', 0) | rejectattr('enable', 'equalto', '0')
                 | selectattr('pos', 'defined') | map(attribute='pos') | map('int') | list)
               + [99999]) | sort | first }}
 

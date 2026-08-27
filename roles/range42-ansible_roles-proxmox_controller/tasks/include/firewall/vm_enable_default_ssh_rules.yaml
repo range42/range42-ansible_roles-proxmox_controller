@@ -21,6 +21,18 @@
 ## problem the SNAT reconciliation exists to undo elsewhere.
 ##
 
+##
+## >>> THE SOURCE KNOB EXISTS AND IS UNSET BY DEFAULT <<<
+## `vm_fw_mgmt_source` restricts who may reach ssh on the guest. It defaults to omitted, so
+## out of the box ssh is accepted from anywhere - which is the current decision, taken with
+## the reason recorded : a guest that cannot be reached by the machines that administer it is
+## worse than one reachable too widely, and the switch that arms a guest firewall REFUSES
+## without this accept, so narrowing it before a whitelist exists would refuse every guest.
+##
+## The knob is here so the mechanism is already wired when that whitelist lands : supplying a
+## value is then the only change, at the call site, with no edit to this action.
+##
+
 - block:
     ####
     ####
@@ -43,12 +55,16 @@
              | selectattr('type', 'defined') | selectattr('type', 'equalto', 'in')
              | selectattr('action', 'defined') | selectattr('action', 'equalto', 'ACCEPT')
              | selectattr('dport', 'defined') | selectattr('dport', 'equalto', '22')
+             | selectattr('enable', 'defined')
+             | rejectattr('enable', 'equalto', 0) | rejectattr('enable', 'equalto', '0')
              | list | length > 0 }}
         _vm_fw_has_drop_all: >-
           {{ (proxmox_call_rules.json.data | default([], true))
              | selectattr('type', 'defined') | selectattr('type', 'equalto', 'in')
              | selectattr('action', 'defined') | selectattr('action', 'equalto', 'DROP')
              | rejectattr('dport', 'defined')
+             | selectattr('enable', 'defined')
+             | rejectattr('enable', 'equalto', 0) | rejectattr('enable', 'equalto', '0')
              | list | length > 0 }}
 
     ####
@@ -68,7 +84,9 @@
           action: "ACCEPT"
           proto: "tcp"
           dport: "22"
+          enable: 1
           pos: "{{ vm_fw_ssh_accept_pos | default(0) }}"
+          source: "{{ vm_fw_mgmt_source | default(omit) }}"
           comment: "{{ vm_fw_ssh_accept_comment | default('range42 default ssh access') }}"
         validate_certs: "{{ proxmox_api_validate_certs | default(false) }}"
       register: proxmox_call
@@ -89,6 +107,7 @@
         body:
           type: "in"
           action: "DROP"
+          enable: 1
           pos: "{{ vm_fw_drop_all_pos | default(1) }}"
           comment: "{{ vm_fw_drop_all_comment | default('range42 default deny inbound') }}"
         validate_certs: "{{ proxmox_api_validate_certs | default(false) }}"
@@ -110,6 +129,7 @@
           drop_all_already_present: "{{ _vm_fw_has_drop_all }}"
           ssh_accept_pos: "{{ vm_fw_ssh_accept_pos | default(0) }}"
           drop_all_pos: "{{ vm_fw_drop_all_pos | default(1) }}"
+          mgmt_source: "{{ vm_fw_mgmt_source | default(omit) }}"
 
     ####
     ####

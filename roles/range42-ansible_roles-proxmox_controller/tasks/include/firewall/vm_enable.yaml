@@ -1,8 +1,87 @@
 ---
+##
+## TURN ONE GUEST'S FIREWALL ON.
+##
+## PUT /nodes/{node}/qemu/{vmid}/firewall/options with enable: 1.
+##
+## >>> IT REFUSES TO ARM A GUEST THAT HAS NO SSH <<<
+## Measured on a test guest the 2026-08-26 : a firewall enabled with zero rules is a deny,
+## and the per-card flag is what actually filters. So arming a guest with no accepted inbound
+## path makes it unreachable.
+##
+## A guest may legitimately be isolated from the internet, from other guests, and from
+## students - that is what a range is for. It must NEVER be isolated from the plane that
+## manages it : the deployer, the nodes, the api and the ui all reach guests over ssh, and a
+## guest they cannot reach is a guest nobody can operate. So the rule is narrow and absolute :
+## 22 stays accepted, and this action refuses to arm without it.
+##
+## The refusal names the action that installs the ssh path.
+##
+## RESTRICTING BY SOURCE IS SEPARATE, LARGER WORK
+## Accepting 22 from anywhere is broader than it should be : it ought to be a whitelist of
+## the management origins. Where that list comes from is not settled - it depends on where
+## the deployer sits, and the gateways of the guest networks probably belong in it since the
+## deployer reaches guests through them. Until that is decided, 22 is accepted without a
+## source restriction, which is open but never unreachable.
+##
 
 - block:
     ####
     ####
+
+    - name: FIREWALL - VM - ENABLE - READ THE CURRENT CHAIN
+      uri:
+        url: "https://{{ proxmox_api_host }}/api2/json/nodes/{{ proxmox_node }}/qemu/{{ vm_id }}/firewall/rules"
+        method: GET
+        headers:
+          Authorization: "PVEAPIToken={{ proxmox_api_user }}!{{ proxmox_api_token_id }}={{ proxmox_api_token_secret }}"
+        validate_certs: "{{ proxmox_api_validate_certs | default(false) }}"
+      register: proxmox_call_rules
+
+    - name: FIREWALL - VM - ENABLE - WHERE THE CHAIN STARTS DENYING, AND WHERE SSH IS ACCEPTED
+      set_fact:
+        _vm_fw_first_deny_pos: >-
+          {{ (((proxmox_call_rules.json.data | default([], true))
+                | selectattr('type', 'defined') | selectattr('type', 'equalto', 'in')
+                | selectattr('action', 'defined') | selectattr('action', 'in', ['DROP', 'REJECT'])
+                | selectattr('enable', 'defined')
+                | rejectattr('enable', 'equalto', 0) | rejectattr('enable', 'equalto', '0')
+                | selectattr('pos', 'defined') | map(attribute='pos') | map('int') | list)
+              + [99999]) | sort | first }}
+        _vm_fw_ssh_first_pos: >-
+          {{ (((proxmox_call_rules.json.data | default([], true))
+                | selectattr('type', 'defined') | selectattr('type', 'equalto', 'in')
+                | selectattr('action', 'defined') | selectattr('action', 'equalto', 'ACCEPT')
+                | selectattr('dport', 'defined')
+                | selectattr('dport', 'equalto', vm_fw_ssh_port | default('22') | string)
+                | selectattr('enable', 'defined')
+                | rejectattr('enable', 'equalto', 0) | rejectattr('enable', 'equalto', '0')
+                | selectattr('pos', 'defined') | map(attribute='pos') | map('int') | list)
+              + [99999]) | sort | first }}
+
+    - name: FIREWALL - VM - ENABLE - IS SSH ACCEPTED, AND ABOVE THE DENY
+      set_fact:
+        _vm_fw_has_ssh: "{{ (_vm_fw_ssh_first_pos | int) < (_vm_fw_first_deny_pos | int) }}"
+
+    - name: FIREWALL - VM - ENABLE - REFUSE TO ARM A GUEST WITH NO SSH
+      ansible.builtin.assert:
+        that:
+          - _vm_fw_has_ssh | bool
+        fail_msg: >-
+          Refused : arming this guest would make it unreachable on ssh. A guest may be
+          isolated from the internet, from other guests and from students - it must never be
+          isolated from the plane that manages it. Read of the chain :
+          first active inbound deny at position {{ _vm_fw_first_deny_pos }} ;
+          ssh {{ vm_fw_ssh_port | default('22') }} accepted and ACTIVE at
+          {{ _vm_fw_ssh_first_pos }} ({{ 'above the deny' if _vm_fw_has_ssh else 'MISSING, INACTIVE, or below the deny' }}).
+          Run the action `firewall_vm_enable_default_ssh_rules` against this guest first,
+          then run this one again. An ACCEPT below a DROP accepts nothing, and a rule stored
+          without `enable` is disabled and grants nothing - both read as present and neither
+          protects.
+        success_msg: >-
+          ssh reachable on {{ vm_fw_ssh_port | default('22') }} at position
+          {{ _vm_fw_ssh_first_pos }}, first active deny at {{ _vm_fw_first_deny_pos }} -
+          arming the guest firewall
 
     - name: FIREWALL - VM - ENABLE
       uri:
@@ -34,6 +113,9 @@
           vm_id: "{{ vm_id | int }}"
           vm_name: "{{ vm_name }}"
           vm_firewall: "enabled"
+
+          rules_total_before: "{{ _fw_rules_total }}"
+          rules_active_before: "{{ _fw_rules_active }}"
 
     - name: FIREWALL - VM - ENABLE - PRINT JSON
       debug:

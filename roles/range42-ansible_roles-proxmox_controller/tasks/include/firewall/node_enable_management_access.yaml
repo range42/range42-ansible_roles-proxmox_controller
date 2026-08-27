@@ -25,6 +25,27 @@
 ## own chain, and the datacenter level has its own options as well.
 ##
 
+##
+## >>> NO INTERFACE SCOPE AND NO SOURCE SCOPE : THAT IS DELIBERATE, NOT AN OVERSIGHT <<<
+## Both accepts are posted with neither `iface` nor `source`, so they accept on EVERY
+## interface from EVERY origin - including the guest networks, which means a guest can reach
+## the api and ssh ports. That is broader than it should be and it is a known trade.
+##
+## The reason is an ordering of risks : a rule that is too broad can be narrowed later by
+## anyone who can read the chain, while a lockout costs physical or console access to every
+## node. Narrowing it here would mean guessing the name of the management interface and the
+## addresses of the management plane, and a wrong guess is exactly the failure that cannot be
+## undone remotely. The priority, while the range is being built, is keeping access.
+##
+## An administrator who knows their own topology narrows these rules by hand, naming the
+## interface and the sources that fit their infrastructure - which this role cannot infer.
+##
+## Restricting them properly is separate work : it depends on where the deployer sits, on the
+## gateways of the guest networks since the deployer reaches guests through them, and on a
+## whitelist that belongs in the workspace vault. It gets its own issue rather than a guess
+## made here.
+##
+
 - block:
     ####
     ####
@@ -70,6 +91,8 @@
           {{ (((proxmox_call_rules.json.data | default([], true))
                 | selectattr('type', 'defined') | selectattr('type', 'equalto', 'in')
                 | selectattr('action', 'defined') | selectattr('action', 'in', ['DROP', 'REJECT'])
+                | selectattr('enable', 'defined')
+                | rejectattr('enable', 'equalto', 0) | rejectattr('enable', 'equalto', '0')
                 | selectattr('pos', 'defined') | map(attribute='pos') | map('int') | list)
               + [99999]) | sort | first }}
         _node_fw_api_first_pos: >-
@@ -78,6 +101,8 @@
                 | selectattr('action', 'defined') | selectattr('action', 'equalto', 'ACCEPT')
                 | selectattr('dport', 'defined')
                 | selectattr('dport', 'equalto', node_fw_api_port | default('8006') | string)
+                | selectattr('enable', 'defined')
+                | rejectattr('enable', 'equalto', 0) | rejectattr('enable', 'equalto', '0')
                 | selectattr('pos', 'defined') | map(attribute='pos') | map('int') | list)
               + [99999]) | sort | first }}
         _node_fw_ssh_first_pos: >-
@@ -86,6 +111,8 @@
                 | selectattr('action', 'defined') | selectattr('action', 'equalto', 'ACCEPT')
                 | selectattr('dport', 'defined')
                 | selectattr('dport', 'equalto', node_fw_ssh_port | default('22') | string)
+                | selectattr('enable', 'defined')
+                | rejectattr('enable', 'equalto', 0) | rejectattr('enable', 'equalto', '0')
                 | selectattr('pos', 'defined') | map(attribute='pos') | map('int') | list)
               + [99999]) | sort | first }}
 
@@ -126,6 +153,7 @@
           action: "ACCEPT"
           proto: "tcp"
           dport: "{{ node_fw_api_port | default('8006') }}"
+          enable: 1
           pos: "{{ node_fw_api_pos | default(0) }}"
           source: "{{ node_fw_mgmt_source | default(omit) }}"
           comment: "{{ node_fw_api_comment | default('range42 anti-lockout, proxmox api') }}"
@@ -150,6 +178,7 @@
           action: "ACCEPT"
           proto: "tcp"
           dport: "{{ node_fw_ssh_port | default('22') }}"
+          enable: 1
           pos: "{{ node_fw_ssh_pos | default(1) }}"
           source: "{{ node_fw_mgmt_source | default(omit) }}"
           comment: "{{ node_fw_ssh_comment | default('range42 anti-lockout, ssh') }}"

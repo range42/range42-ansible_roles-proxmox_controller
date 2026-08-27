@@ -1,8 +1,47 @@
 ---
+##
+## TURN THE DATACENTER FIREWALL OFF.
+##
+## >>> IT DOES NOT REFUSE, IT REPORTS <<<
+## Turning a firewall off locks nobody out - it removes protection, which is the opposite
+## risk and a legitimate operation. What was wrong until now is that it happened in SILENCE :
+## nothing said how many rules were being made inert, so an operator could not tell whether
+## they had just dropped one rule or a whole policy.
+##
+## So this action reads the chain first and says what it is about to deactivate. Only rules
+## that are ACTIVE are counted : a rule stored without `enable` was already inert and its
+## removal changes nothing.
+##
 
 - block:
     ####
     ####
+
+    - name: FIREWALL - DATACENTER - DISABLE - READ THE CURRENT CHAIN
+      uri:
+        url: "https://{{ proxmox_api_host }}/api2/json/cluster/firewall/rules"
+        method: GET
+        headers:
+          Authorization: "PVEAPIToken={{ proxmox_api_user }}!{{ proxmox_api_token_id }}={{ proxmox_api_token_secret }}"
+        validate_certs: "{{ proxmox_api_validate_certs | default(false) }}"
+      register: proxmox_call_rules
+
+    - name: FIREWALL - DATACENTER - DISABLE - WHAT THE CHAIN HOLDS
+      set_fact:
+        _fw_rules_total: "{{ (proxmox_call_rules.json.data | default([], true)) | length }}"
+        _fw_rules_active: >-
+          {{ (proxmox_call_rules.json.data | default([], true))
+             | selectattr('enable', 'defined')
+             | rejectattr('enable', 'equalto', 0) | rejectattr('enable', 'equalto', '0')
+             | list | length }}
+
+    - name: FIREWALL - DATACENTER - DISABLE - WHAT IS ABOUT TO BECOME INERT
+      debug:
+        msg: >-
+          TURNING OFF the datacenter firewall : {{ _fw_rules_total }} rule(s) in the chain,
+          {{ _fw_rules_active }} of them ACTIVE and about to stop applying. This is not a
+          refusal - it is the count, so that turning off a whole policy does not look like
+          turning off nothing.
 
     - name: FIREWALL - DATACENTER - DISABLE FIREWALL
       uri:

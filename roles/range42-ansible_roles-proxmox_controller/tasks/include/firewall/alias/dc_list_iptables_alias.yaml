@@ -1,0 +1,59 @@
+---
+##
+## LIST THE FIREWALL ALIASES DEFINED AT THE DATACENTER LEVEL.
+##
+## The comment is read from the api's `comment` field. The guest-level equivalent reads
+## `item.iface` into the same slot, which an alias never carries, so its comment always
+## comes back empty. Not copied here.
+##
+## Aliases exist at the datacenter and guest levels only. There is no node-level endpoint.
+##
+
+- block:
+    ####
+    ####
+
+    - name: FIREWALL - DATACENTER - LIST FW ALIAS
+      uri:
+        url: "https://{{ proxmox_api_host }}/api2/json/cluster/firewall/aliases"
+        method: GET
+        headers:
+          Authorization: "PVEAPIToken={{ proxmox_api_user }}!{{ proxmox_api_token_id }}={{ proxmox_api_token_secret }}"
+        validate_certs: "{{ proxmox_api_validate_certs | default(false) }}"
+      register: proxmox_call
+
+    - name: FIREWALL - DATACENTER - LIST FW ALIAS - proxmox_call
+      debug:
+        var: proxmox_call
+
+    ####
+    ####
+
+    - name: FIREWALL - DATACENTER - LIST FW ALIAS - BUILD JSON
+      set_fact:
+        firewall_dc_list_iptables_alias: >-
+          {{ (firewall_dc_list_iptables_alias | default([])) +
+            [ {
+              'action': "firewall_dc_list_iptables_alias",
+              'source': "proxmox",
+              'proxmox_node':   proxmox_node ,
+
+              'dc_fw_alias_name':    ( item.name    | default(omit)),
+              'dc_fw_alias_cidr':    ( item.cidr    | default(omit)),
+              'dc_fw_alias_comment': ( item.comment | default(omit)),
+            } ] }}
+      loop: "{{ proxmox_call.json.data }}"
+      loop_control:
+        loop_var: item
+
+    - name: FIREWALL - DATACENTER - LIST FW ALIAS - PRINT JSON
+      debug:
+        var: firewall_dc_list_iptables_alias
+      when:
+        - firewall_dc_list_iptables_alias is defined
+        - firewall_dc_list_iptables_alias | length > 0
+
+  ####
+  ####
+
+  when: proxmox_vm_action == "firewall_dc_list_iptables_alias"

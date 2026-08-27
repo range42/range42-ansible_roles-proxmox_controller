@@ -1,0 +1,229 @@
+---
+##
+## ANTI-LOCKOUT AT THE DATACENTER : GUARANTEE MANAGEMENT ACCESS BEFORE ANY FIREWALL GOES ON.
+##
+## POST /cluster/firewall/rules, twice.
+##
+## >>> WHY THIS LEVEL AND NOT THE NODE <<<
+## Proxmox applies the datacenter rules to every node's host chain. A guard placed here
+## therefore covers a node that does not exist yet - a node added next month arrives
+## protected, without anyone remembering to run anything on it. A per-node guard has to be
+## replayed on every new node, and the one that is forgotten is the one that locks out.
+## The node-level action is kept and stays usable for an explicit per-node guard on top.
+##
+##     8006/tcp   the Proxmox web interface and its API, which is also how this role talks
+##                to the cluster : losing it means losing the tool that would fix it
+##     22/tcp     ssh
+##
+## >>> POSITIONS ARE PASSED EXPLICITLY, AND THAT IS THE WHOLE POINT <<<
+## The Proxmox firewall evaluates rules in order. An accept sitting below a deny accepts
+## nothing. The barrier is the FIRST inbound DROP or REJECT - both block, they only differ
+## in what they answer back. Presence is therefore not protection : the position is part of
+## the question, and the test below asks it.
+##
+## >>> AND ENABLE IS PASSED EXPLICITLY TOO <<<
+## A rule posted without `enable` is stored DISABLED by Proxmox : prefixed with a pipe in
+## the file, absent from the compiled chain, granting nothing. The node-level guard shipped
+## that way and its own test could not tell, because the test did not look at `enable`
+## either - so it would have declared a node protected by two dead rules. Measured the
+## 2026-08-27 on a live node. Both rules here carry `enable: 1` from the start, and the
+## test below counts only rules that are actually active.
+##
+## Reading the chain first makes the action idempotent. Posting blindly appends another
+## pair on every run.
+##
+## >>> THE PREDICATE BELOW EXISTS THREE TIMES <<<
+## Here, in node_enable_management_access.yaml, and in node_enable.yaml. The role holds
+## self-contained action files and uses no task includes at all, so sharing it would
+## introduce a pattern the role does not have. The price is that the three copies MUST stay
+## identical, and that is checked at delivery rather than left to discipline.
+##
+
+##
+## >>> NO INTERFACE SCOPE AND NO SOURCE SCOPE : THAT IS DELIBERATE, NOT AN OVERSIGHT <<<
+## Both accepts are posted with neither `iface` nor `source`, so they accept on EVERY
+## interface from EVERY origin - including the guest networks, which means a guest can reach
+## the api and ssh ports. That is broader than it should be and it is a known trade.
+##
+## The reason is an ordering of risks : a rule that is too broad can be narrowed later by
+## anyone who can read the chain, while a lockout costs physical or console access to every
+## node. Narrowing it here would mean guessing the name of the management interface and the
+## addresses of the management plane, and a wrong guess is exactly the failure that cannot be
+## undone remotely. The priority, while the range is being built, is keeping access.
+##
+## An administrator who knows their own topology narrows these rules by hand, naming the
+## interface and the sources that fit their infrastructure - which this role cannot infer.
+##
+## Restricting them properly is separate work : it depends on where the deployer sits, on the
+## gateways of the guest networks since the deployer reaches guests through them, and on a
+## whitelist that belongs in the workspace vault. It gets its own issue rather than a guess
+## made here.
+##
+
+- block:
+    ####
+    ####
+    ## Read before write : what is already there decides what gets posted.
+    ####
+
+    - name: FIREWALL - DATACENTER - ENABLE MANAGEMENT ACCESS - READ THE CURRENT CHAIN
+      uri:
+        url: "https://{{ proxmox_api_host }}/api2/json/cluster/firewall/rules"
+        method: GET
+        headers:
+          Authorization: "PVEAPIToken={{ proxmox_api_user }}!{{ proxmox_api_token_id }}={{ proxmox_api_token_secret }}"
+        validate_certs: "{{ proxmox_api_validate_certs | default(false) }}"
+      register: proxmox_call_rules
+
+    ####
+    ## The barrier is the FIRST inbound DROP or REJECT. 99999 is the sentinel for a chain
+    ## with no deny at all : a fresh datacenter has none, both accepts then read as absent
+    ## and both get posted, which is the wanted behaviour.
+    ##
+    ## Two ACCEPTs on DISJOINT ports commute : whichever comes first changes nothing. What
+    ## is load bearing is that BOTH sit above the first deny, and that BOTH are active.
+    ##
+    ## NOT covered here, on purpose : `source` is not part of the test. A rule scoped to a
+    ## source that does not include the caller reads as present and is skipped. Widening
+    ## management access to its several legitimate origins is separate work.
+    ####
+
+    - name: FIREWALL - DATACENTER - ENABLE MANAGEMENT ACCESS - WHERE THE CHAIN STARTS DENYING
+      set_fact:
+        _dc_fw_first_deny_pos: >-
+          {{ (((proxmox_call_rules.json.data | default([], true))
+          | selectattr('type', 'defined') | selectattr('type', 'equalto', 'in')
+          | selectattr('action', 'defined') | selectattr('action', 'in', ['DROP', 'REJECT'])
+          | selectattr('enable', 'defined')
+          | rejectattr('enable', 'equalto', 0) | rejectattr('enable', 'equalto', '0')
+          | selectattr('pos', 'defined') | map(attribute='pos') | map('int') | list)
+          + [99999]) | sort | first }}
+        _dc_fw_api_first_pos: >-
+          {{ (((proxmox_call_rules.json.data | default([], true))
+          | selectattr('type', 'defined') | selectattr('type', 'equalto', 'in')
+          | selectattr('action', 'defined') | selectattr('action', 'equalto', 'ACCEPT')
+          | selectattr('dport', 'defined')
+          | selectattr('dport', 'equalto', dc_fw_api_port | default('8006') | string)
+          | selectattr('enable', 'defined')
+          | rejectattr('enable', 'equalto', 0) | rejectattr('enable', 'equalto', '0')
+          | selectattr('pos', 'defined') | map(attribute='pos') | map('int') | list)
+          + [99999]) | sort | first }}
+        _dc_fw_ssh_first_pos: >-
+          {{ (((proxmox_call_rules.json.data | default([], true))
+          | selectattr('type', 'defined') | selectattr('type', 'equalto', 'in')
+          | selectattr('action', 'defined') | selectattr('action', 'equalto', 'ACCEPT')
+          | selectattr('dport', 'defined')
+          | selectattr('dport', 'equalto', dc_fw_ssh_port | default('22') | string)
+          | selectattr('enable', 'defined')
+          | rejectattr('enable', 'equalto', 0) | rejectattr('enable', 'equalto', '0')
+          | selectattr('pos', 'defined') | map(attribute='pos') | map('int') | list)
+          + [99999]) | sort | first }}
+    ####
+    ## Separate task : keys of one set_fact are all evaluated against the state BEFORE the
+    ## task, so these two cannot read the three positions from the same one.
+    ####
+
+    - name: FIREWALL - DATACENTER - ENABLE MANAGEMENT ACCESS - WHAT IS ALREADY IN PLACE, AND WELL PLACED
+      set_fact:
+        _dc_fw_has_api: "{{ (_dc_fw_api_first_pos | int) < (_dc_fw_first_deny_pos | int) }}"
+        _dc_fw_has_ssh: "{{ (_dc_fw_ssh_first_pos | int) < (_dc_fw_first_deny_pos | int) }}"
+
+    - name: FIREWALL - DATACENTER - ENABLE MANAGEMENT ACCESS - THE CHAIN AS IT READS NOW
+      debug:
+        msg: >-
+          first deny at {{ _dc_fw_first_deny_pos }} :
+          api {{ dc_fw_api_port | default('8006') }} at {{ _dc_fw_api_first_pos }} ->
+          {{ 'protected' if _dc_fw_has_api else 'NOT PROTECTED, will be posted' }} ;
+          ssh {{ dc_fw_ssh_port | default('22') }} at {{ _dc_fw_ssh_first_pos }} ->
+          {{ 'protected' if _dc_fw_has_ssh else 'NOT PROTECTED, will be posted' }}
+
+    ####
+    ####
+    ## The API port first : it is the way back in if anything else goes wrong.
+    ####
+
+    - name: FIREWALL - DATACENTER - ENABLE MANAGEMENT ACCESS - ACCEPT THE API PORT
+      uri:
+        url: "https://{{ proxmox_api_host }}/api2/json/cluster/firewall/rules"
+        method: POST
+        headers:
+          Authorization: "PVEAPIToken={{ proxmox_api_user }}!{{ proxmox_api_token_id }}={{ proxmox_api_token_secret }}"
+        body_format: json
+        body:
+          type: "in"
+          action: "ACCEPT"
+          proto: "tcp"
+          dport: "{{ dc_fw_api_port | default('8006') }}"
+          enable: 1
+          pos: "{{ dc_fw_api_pos | default(0) }}"
+          source: "{{ dc_fw_mgmt_source | default(omit) }}"
+          comment: "{{ dc_fw_api_comment | default('range42 anti-lockout, proxmox api') }}"
+        validate_certs: "{{ proxmox_api_validate_certs | default(false) }}"
+      register: proxmox_call
+      when: not _dc_fw_has_api
+
+    ####
+    ####
+    ## Then ssh, immediately below it.
+    ####
+
+    - name: FIREWALL - DATACENTER - ENABLE MANAGEMENT ACCESS - ACCEPT SSH
+      uri:
+        url: "https://{{ proxmox_api_host }}/api2/json/cluster/firewall/rules"
+        method: POST
+        headers:
+          Authorization: "PVEAPIToken={{ proxmox_api_user }}!{{ proxmox_api_token_id }}={{ proxmox_api_token_secret }}"
+        body_format: json
+        body:
+          type: "in"
+          action: "ACCEPT"
+          proto: "tcp"
+          dport: "{{ dc_fw_ssh_port | default('22') }}"
+          enable: 1
+          pos: "{{ dc_fw_ssh_pos | default(1) }}"
+          source: "{{ dc_fw_mgmt_source | default(omit) }}"
+          comment: "{{ dc_fw_ssh_comment | default('range42 anti-lockout, ssh') }}"
+        validate_certs: "{{ proxmox_api_validate_certs | default(false) }}"
+      register: proxmox_call_ssh
+      when: not _dc_fw_has_ssh
+
+    ####
+    ####
+
+    - name: FIREWALL - DATACENTER - ENABLE MANAGEMENT ACCESS - BUILD JSON
+      set_fact:
+        firewall_dc_enable_management_access:
+          action: "firewall_dc_enable_management_access"
+          source: "proxmox"
+          proxmox_node: "{{ proxmox_node }}"
+
+          ## `_requested` is the caller's parameter, `_before` is what the chain actually
+          ## held when it was read. Publishing only the first reads as a measurement while
+          ## being an input.
+          api_port: "{{ dc_fw_api_port | default('8006') }}"
+          api_pos_requested: "{{ dc_fw_api_pos | default(0) }}"
+          api_pos_before: "{{ _dc_fw_api_first_pos }}"
+          api_already_present: "{{ _dc_fw_has_api }}"
+
+          ssh_port: "{{ dc_fw_ssh_port | default('22') }}"
+          ssh_pos_requested: "{{ dc_fw_ssh_pos | default(1) }}"
+          ssh_pos_before: "{{ _dc_fw_ssh_first_pos }}"
+          ssh_already_present: "{{ _dc_fw_has_ssh }}"
+
+          first_deny_pos_before: "{{ _dc_fw_first_deny_pos }}"
+          mgmt_source: "{{ dc_fw_mgmt_source | default(omit) }}"
+
+    ####
+    ## This debug task is NOT cosmetic : the devkit helper extracts its payload with
+    ##   select(type=="object" and has($action)) | .[$action]
+    ## so a JSON key named EXACTLY like the action must appear in the task results.
+    ####
+
+    - name: FIREWALL - DATACENTER - ENABLE MANAGEMENT ACCESS - PRINT JSON
+      debug:
+        var: firewall_dc_enable_management_access
+
+  ####
+  ####
+
+  when: proxmox_vm_action == "firewall_dc_enable_management_access"

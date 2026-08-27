@@ -127,6 +127,41 @@
   ansible.builtin.include_tasks: "./include/firewall/dc_disable.yaml"
   when: proxmox_vm_action == "firewall_dc_disable"
 
+- name: INCLUDE - ./include/firewall/dc_list_iptables_rule.yaml
+  ansible.builtin.include_tasks: "./include/firewall/dc_list_iptables_rule.yaml"
+  when: proxmox_vm_action == "firewall_dc_list_iptables_rule"
+
+- name: INCLUDE - ./include/firewall/dc_list_options.yaml
+  ansible.builtin.include_tasks: "./include/firewall/dc_list_options.yaml"
+  when: proxmox_vm_action == "firewall_dc_list_options"
+
+- name: INCLUDE - ./include/firewall/dc_apply_iptables_rule.yaml
+  ansible.builtin.include_tasks: "./include/firewall/dc_apply_iptables_rule.yaml"
+  when: proxmox_vm_action == "firewall_dc_apply_iptables_rule"
+
+- name: INCLUDE - ./include/firewall/dc_delete_iptables_rule.yaml
+  ansible.builtin.include_tasks: "./include/firewall/dc_delete_iptables_rule.yaml"
+  when: proxmox_vm_action == "firewall_dc_delete_iptables_rule"
+
+#### anti-lockout du DATACENTER : le niveau retenu, car il couvre tout noeud a venir
+#### sans qu'on ait a le rejouer. A lancer AVANT toute activation, jamais apres.
+
+- name: INCLUDE - ./include/firewall/dc_enable_management_access.yaml
+  ansible.builtin.include_tasks: "./include/firewall/dc_enable_management_access.yaml"
+  when: proxmox_vm_action == "firewall_dc_enable_management_access"
+
+- name: INCLUDE - ./include/firewall/alias/dc_list_iptables_alias.yaml
+  ansible.builtin.include_tasks: "./include/firewall/alias/dc_list_iptables_alias.yaml"
+  when: proxmox_vm_action == "firewall_dc_list_iptables_alias"
+
+- name: INCLUDE - ./include/firewall/alias/dc_add_iptables_alias.yaml
+  ansible.builtin.include_tasks: "./include/firewall/alias/dc_add_iptables_alias.yaml"
+  when: proxmox_vm_action == "firewall_dc_add_iptables_alias"
+
+- name: INCLUDE - ./include/firewall/alias/dc_delete_iptables_alias.yaml
+  ansible.builtin.include_tasks: "./include/firewall/alias/dc_delete_iptables_alias.yaml"
+  when: proxmox_vm_action == "firewall_dc_delete_iptables_alias"
+
 - name: INCLUDE - ./include/firewall/node_enable.yaml
   ansible.builtin.include_tasks: "./include/firewall/node_enable.yaml"
   when: proxmox_vm_action == "firewall_node_enable"
@@ -138,6 +173,18 @@
 - name: INCLUDE - ./include/firewall/node_apply_iptables_rule.yaml
   ansible.builtin.include_tasks: "./include/firewall/node_apply_iptables_rule.yaml"
   when: proxmox_vm_action == "firewall_node_apply_iptables_rule"
+
+- name: INCLUDE - ./include/firewall/node_list_iptables_rule.yaml
+  ansible.builtin.include_tasks: "./include/firewall/node_list_iptables_rule.yaml"
+  when: proxmox_vm_action == "firewall_node_list_iptables_rule"
+
+- name: INCLUDE - ./include/firewall/node_list_options.yaml
+  ansible.builtin.include_tasks: "./include/firewall/node_list_options.yaml"
+  when: proxmox_vm_action == "firewall_node_list_options"
+
+- name: INCLUDE - ./include/firewall/node_delete_iptables_rule.yaml
+  ansible.builtin.include_tasks: "./include/firewall/node_delete_iptables_rule.yaml"
+  when: proxmox_vm_action == "firewall_node_delete_iptables_rule"
 
 #### anti-lockout : a jouer AVANT firewall_node_enable, jamais apres
 
@@ -163,6 +210,10 @@
 - name: INCLUDE - ./include/firewall/vm_list_iptables_rule.yaml
   ansible.builtin.include_tasks: "./include/firewall/vm_list_iptables_rule.yaml"
   when: proxmox_vm_action == "firewall_vm_list_iptables_rule"
+
+- name: INCLUDE - ./include/firewall/vm_list_options.yaml
+  ansible.builtin.include_tasks: "./include/firewall/vm_list_options.yaml"
+  when: proxmox_vm_action == "firewall_vm_list_options"
 
 - name: INCLUDE - ./include/firewall/firewall_vm_list_iptables_alias.yaml
   ansible.builtin.include_tasks: "./include/firewall/alias/vm_list_iptables_alias.yaml"

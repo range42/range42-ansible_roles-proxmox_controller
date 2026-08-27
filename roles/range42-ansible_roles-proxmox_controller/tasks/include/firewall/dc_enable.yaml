@@ -1,6 +1,110 @@
 ---
+##
+## TURN THE DATACENTER FIREWALL ON - AND REFUSE TO DO IT BLIND.
+##
+## PUT /cluster/firewall/options with enable: 1.
+##
+## >>> THIS IS THE MOST DANGEROUS SWITCH OF THE THREE <<<
+## Proxmox applies the datacenter rules to every node's host chain. Arming here with no
+## accepted path therefore loses the web interface AND ssh on EVERY node at the same time,
+## not on one. Recovery needs physical or console access to each of them.
+##
+## Measured on a test node the 2026-08-27 : a firewall enabled with zero rules is a deny,
+## refused in both directions, the hypervisor included. So the guard is not a precaution.
+##
+## The action that installs the way back in is dc_enable_management_access, and it is meant
+## to run first. This action reads the chain and refuses unless both management accepts sit
+## ABOVE the first inbound deny and are ACTIVE - a rule stored without `enable` is disabled
+## by Proxmox and grants nothing, which is how the node-level guard shipped inert.
+##
+## >>> THE PREDICATE BELOW EXISTS FOUR TIMES <<<
+## Here, in node_enable.yaml, in node_enable_management_access.yaml and in
+## dc_enable_management_access.yaml. The role holds self-contained action files and uses
+## include_tasks nowhere across its 78 actions ; sharing this would break that convention to
+## save ten lines. The duplication is therefore deliberate, and the four copies are checked
+## identical at delivery rather than left to discipline.
+##
+## No escape hatch is provided. A flag that skips a lockout guard is how lockout guards die.
+##
 
 - block:
+    ####
+    ####
+    ## Read the chain fresh. What the caller believes about it does not count.
+    ####
+
+    - name: FIREWALL - DATACENTER - ENABLE - READ THE CURRENT CHAIN
+      uri:
+        url: "https://{{ proxmox_api_host }}/api2/json/cluster/firewall/rules"
+        method: GET
+        headers:
+          Authorization: "PVEAPIToken={{ proxmox_api_user }}!{{ proxmox_api_token_id }}={{ proxmox_api_token_secret }}"
+        validate_certs: "{{ proxmox_api_validate_certs | default(false) }}"
+      register: proxmox_call_rules
+
+    - name: FIREWALL - DATACENTER - ENABLE - WHERE THE CHAIN STARTS DENYING
+      set_fact:
+        _dc_fw_first_deny_pos: >-
+          {{ (((proxmox_call_rules.json.data | default([], true))
+          | selectattr('type', 'defined') | selectattr('type', 'equalto', 'in')
+          | selectattr('action', 'defined') | selectattr('action', 'in', ['DROP', 'REJECT'])
+          | selectattr('enable', 'defined')
+          | rejectattr('enable', 'equalto', 0) | rejectattr('enable', 'equalto', '0')
+          | selectattr('pos', 'defined') | map(attribute='pos') | map('int') | list)
+          + [99999]) | sort | first }}
+        _dc_fw_api_first_pos: >-
+          {{ (((proxmox_call_rules.json.data | default([], true))
+          | selectattr('type', 'defined') | selectattr('type', 'equalto', 'in')
+          | selectattr('action', 'defined') | selectattr('action', 'equalto', 'ACCEPT')
+          | selectattr('dport', 'defined')
+          | selectattr('dport', 'equalto', dc_fw_api_port | default('8006') | string)
+          | selectattr('enable', 'defined')
+          | rejectattr('enable', 'equalto', 0) | rejectattr('enable', 'equalto', '0')
+          | selectattr('pos', 'defined') | map(attribute='pos') | map('int') | list)
+          + [99999]) | sort | first }}
+        _dc_fw_ssh_first_pos: >-
+          {{ (((proxmox_call_rules.json.data | default([], true))
+          | selectattr('type', 'defined') | selectattr('type', 'equalto', 'in')
+          | selectattr('action', 'defined') | selectattr('action', 'equalto', 'ACCEPT')
+          | selectattr('dport', 'defined')
+          | selectattr('dport', 'equalto', dc_fw_ssh_port | default('22') | string)
+          | selectattr('enable', 'defined')
+          | rejectattr('enable', 'equalto', 0) | rejectattr('enable', 'equalto', '0')
+          | selectattr('pos', 'defined') | map(attribute='pos') | map('int') | list)
+          + [99999]) | sort | first }}
+    ####
+    ## Separate task : keys of one set_fact are all evaluated against the state BEFORE the
+    ## task, so these two cannot read the three positions from the same one.
+    ####
+
+    - name: FIREWALL - DATACENTER - ENABLE - WHAT IS ALREADY IN PLACE, AND WELL PLACED
+      set_fact:
+        _dc_fw_has_api: "{{ (_dc_fw_api_first_pos | int) < (_dc_fw_first_deny_pos | int) }}"
+        _dc_fw_has_ssh: "{{ (_dc_fw_ssh_first_pos | int) < (_dc_fw_first_deny_pos | int) }}"
+
+
+    - name: FIREWALL - DATACENTER - ENABLE - REFUSE TO ARM A CLUSTER WITH NO WAY BACK IN
+      ansible.builtin.assert:
+        that:
+          - _dc_fw_has_api | bool
+          - _dc_fw_has_ssh | bool
+        fail_msg: >-
+          Refused : arming the datacenter firewall would lock this role out of EVERY node,
+          not one. `enable: 1` with no accepted path is a DENY - measured the 2026-08-27, in
+          both directions, the hypervisor included. Read of the datacenter chain :
+          first inbound deny at position {{ _dc_fw_first_deny_pos }} ;
+          api {{ dc_fw_api_port | default('8006') }} accepted and ACTIVE at
+          {{ _dc_fw_api_first_pos }} ({{ 'above the deny' if _dc_fw_has_api else 'MISSING, INACTIVE, or below the deny' }}) ;
+          ssh {{ dc_fw_ssh_port | default('22') }} accepted and ACTIVE at
+          {{ _dc_fw_ssh_first_pos }} ({{ 'above the deny' if _dc_fw_has_ssh else 'MISSING, INACTIVE, or below the deny' }}).
+          Run the action `firewall_dc_enable_management_access` first, then run this one
+          again. An ACCEPT below a DROP accepts nothing, and a rule stored without `enable`
+          is disabled and grants nothing - both read as present and neither protects.
+        success_msg: >-
+          way back in confirmed at the datacenter :
+          api at {{ _dc_fw_api_first_pos }}, ssh at {{ _dc_fw_ssh_first_pos }},
+          first deny at {{ _dc_fw_first_deny_pos }} - arming the datacenter firewall
+
     ####
     ####
 
@@ -16,23 +120,30 @@
         validate_certs: "{{ proxmox_api_validate_certs | default(false) }}"
       register: proxmox_call
 
-    - name: PRINT proxmox_call
+    - name: FIREWALL - DATACENTER - ENABLE - PRINT proxmox_call
       debug:
         var: proxmox_call
 
     ####
     ####
+
     - name: FIREWALL - DATACENTER - ENABLE - BUILD JSON
       set_fact:
         firewall_dc_enable:
           action: "firewall_dc_enable"
           source: "proxmox"
           proxmox_node: "{{ proxmox_node }}"
-          #
           dc_firewall: "enabled"
+
+          api_pos_before: "{{ _dc_fw_api_first_pos }}"
+          ssh_pos_before: "{{ _dc_fw_ssh_first_pos }}"
+          first_deny_pos_before: "{{ _dc_fw_first_deny_pos }}"
 
     - name: FIREWALL - DATACENTER - ENABLE - PRINT JSON
       debug:
         var: firewall_dc_enable
+
+  ####
+  ####
 
   when: proxmox_vm_action == "firewall_dc_enable"
