@@ -9,10 +9,15 @@
 ## covers a node that does not exist yet - which is why the management guard belongs at
 ## this level rather than per node.
 ##
-## dc_fw_pos is worth passing. Rules are evaluated in order, so a rule whose position is
-## left to the API default lands wherever the default happens to be, which decides whether
-## it takes effect at all.
+## THE POSITION IS NOT A PARAMETER, AND IT NEVER WAS.
+## PVE inserts a created rule at the TOP of the chain and IGNORES any position asked for.
+## Measured four times the 2026-08-28, in the datacenter chain, in a node chain, and twice
+## through the resulting order of two rules posted back to back. This action therefore
+## stops accepting a position : asking for one promised something the API does not honour.
+## To know where a rule landed, read the chain back with the matching list action.
 ##
+## The deletion actions are a different matter and keep their position : DELETE by position
+## is the only call the API offers, and it works.
 ## dc_fw_enable is worth passing too, and for a blunter reason : a rule posted without it
 ## is stored DISABLED. It appears in the configuration, it reads as present, and it grants
 ## nothing. Measured the 2026-08-27 on the node-level guard, which had shipped that way.
@@ -42,7 +47,6 @@
           enable: "{{ dc_fw_enable | default(omit) }}"        # BOOL, sans lui la regle est INERTE
           comment: "{{ dc_fw_comment | default(omit) }}"      # STR
           log: "{{ dc_fw_log | default(omit) }}"              # nolog | emerg .. debug
-          pos: "{{ dc_fw_pos | default(omit) }}"              # INT
         validate_certs: "{{ proxmox_api_validate_certs | default(false) }}"
       register: proxmox_call
 
@@ -65,7 +69,6 @@
           dc_fw_dport: "{{ dc_fw_dport | default(omit) }}"
           dc_fw_proto: "{{ dc_fw_proto | default(omit) }}"
           dc_fw_enable: "{{ dc_fw_enable | default(omit) }}"
-          dc_fw_pos: "{{ dc_fw_pos | default(omit) }}"
           dc_fw_comment: "{{ dc_fw_comment | default(omit) }}"
 
     - name: FIREWALL - DATACENTER - APPLY FW RULE - PRINT JSON

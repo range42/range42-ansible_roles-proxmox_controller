@@ -29,7 +29,6 @@
           sport: "{{ vm_fw_sport | default(omit) }}" # STR !!
           enable: "{{ vm_fw_enable | default(omit) }}" # BOOL
           comment: "{{ vm_fw_comment | default(omit) }}" # STR
-          pos: "{{ vm_fw_pos | default(omit) }}" # INT
           log: "{{ vm_fw_log | default(omit) }}" # ALERT | CRIT | ERR | WARNING | NOTICE | INFO | DEBUG | NOLOG
           #
         validate_certs: "{{ proxmox_api_validate_certs | default(false) }}"
@@ -65,7 +64,6 @@
           vm_fw_sport: "{{ vm_fw_sport | default(omit) }}" # STR !!
           vm_fw_enable: "{{ vm_fw_enable | default(omit) }}" # BOOL
           vm_fw_comment: "{{ vm_fw_comment | default(omit) }}" # STR
-          vm_fw_pos: "{{ vm_fw_pos | default(omit) }}" # INT
           vm_fw_log: "{{ vm_fw_log | default(omit) }}" # ALERT | CRIT | ERR | WARNING | NOTICE | INFO | DEBUG | NOLOG
           # raw_info: "{{ proxmox_call.json }}" # orig json proxmox
 

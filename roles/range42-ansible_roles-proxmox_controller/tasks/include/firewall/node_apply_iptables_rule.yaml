@@ -14,11 +14,15 @@
 ## that touches iptables directly is network_delete_extra_snat_rules, because the SDN SNAT rule
 ## is owned by ifupdown2 rather than by pve-firewall.
 ##
-## node_fw_pos is worth passing. Rules are evaluated in order, so a rule whose position is
-## left to the API default lands wherever the default happens to be, which decides whether
-## it takes effect at all. See node_enable_management_access for the case where getting
-## that wrong locks the operator out of the machine.
+## THE POSITION IS NOT A PARAMETER, AND IT NEVER WAS.
+## PVE inserts a created rule at the TOP of the chain and IGNORES any position asked for.
+## Measured four times the 2026-08-28, in the datacenter chain, in a node chain, and twice
+## through the resulting order of two rules posted back to back. This action therefore
+## stops accepting a position : asking for one promised something the API does not honour.
+## To know where a rule landed, read the chain back with the matching list action.
 ##
+## The deletion actions are a different matter and keep their position : DELETE by position
+## is the only call the API offers, and it works.
 
 - block:
     ####
@@ -43,7 +47,6 @@
           sport: "{{ node_fw_sport | default(omit) }}"          # STR
           enable: "{{ node_fw_enable | default(omit) }}"        # BOOL
           comment: "{{ node_fw_comment | default(omit) }}"      # STR
-          pos: "{{ node_fw_pos | default(omit) }}"              # INT
           log: "{{ node_fw_log | default(omit) }}"              # ALERT | CRIT | ERR | WARNING | NOTICE | INFO | DEBUG | NOLOG
         validate_certs: "{{ proxmox_api_validate_certs | default(false) }}"
       register: proxmox_call
@@ -75,7 +78,6 @@
           node_fw_sport: "{{ node_fw_sport | default(omit) }}"
           node_fw_enable: "{{ node_fw_enable | default(omit) }}"
           node_fw_comment: "{{ node_fw_comment | default(omit) }}"
-          node_fw_pos: "{{ node_fw_pos | default(omit) }}"
           node_fw_log: "{{ node_fw_log | default(omit) }}"
 
     ####
