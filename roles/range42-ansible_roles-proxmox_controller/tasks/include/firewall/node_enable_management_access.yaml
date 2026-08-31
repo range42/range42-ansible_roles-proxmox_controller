@@ -87,14 +87,42 @@
 
     - name: FIREWALL - NODE - ENABLE MANAGEMENT ACCESS - WHERE THE CHAIN STARTS DENYING
       set_fact:
-        _node_fw_first_deny_pos: >-
-          {{ (((proxmox_call_rules.json.data | default([], true))
-                | selectattr('type', 'defined') | selectattr('type', 'equalto', 'in')
-                | selectattr('action', 'defined') | selectattr('action', 'in', ['DROP', 'REJECT'])
-                | selectattr('enable', 'defined')
-                | rejectattr('enable', 'equalto', 0) | rejectattr('enable', 'equalto', '0')
-                | selectattr('pos', 'defined') | map(attribute='pos') | map('int') | list)
-              + [99999]) | sort | first }}
+        ####
+        ## A DENY ONLY COUNTS IF IT CAN REACH THE PORT WE ARE PROTECTING.
+        ## Measured : an active DROP on 8006 sitting above an ACCEPT on 22 leaves 22 OPEN.
+        ## Taking the first active deny of ANY port therefore refuses on a chain that works,
+        ## and denying a service while allowing management is an ordinary configuration.
+        ## A deny covers a port unless it carries a destination that is purely numeric AND
+        ## different. Everything else covers : absent, empty, non numeric, a range, a list.
+        ## The predicate therefore fails CLOSED on every form it does not recognise.
+        ####
+        _node_fw_deny_all_pos: >-
+          {{ ((proxmox_call_rules.json.data | default([], true))
+          | selectattr('type', 'defined') | selectattr('type', 'equalto', 'in')
+          | selectattr('action', 'defined') | selectattr('action', 'in', ['DROP', 'REJECT'])
+          | selectattr('enable', 'defined')
+          | rejectattr('enable', 'equalto', 0) | rejectattr('enable', 'equalto', '0')
+          | selectattr('pos', 'defined') | map(attribute='pos') | map('int') | list) }}
+        _node_fw_deny_other_api_pos: >-
+          {{ ((proxmox_call_rules.json.data | default([], true))
+          | selectattr('type', 'defined') | selectattr('type', 'equalto', 'in')
+          | selectattr('action', 'defined') | selectattr('action', 'in', ['DROP', 'REJECT'])
+          | selectattr('enable', 'defined')
+          | rejectattr('enable', 'equalto', 0) | rejectattr('enable', 'equalto', '0')
+          | selectattr('dport', 'defined') | rejectattr('dport', 'none')
+          | selectattr('dport', 'match', '^[0-9]+$')
+          | rejectattr('dport', 'equalto', node_fw_api_port | default('8006') | string)
+          | selectattr('pos', 'defined') | map(attribute='pos') | map('int') | list) }}
+        _node_fw_deny_other_ssh_pos: >-
+          {{ ((proxmox_call_rules.json.data | default([], true))
+          | selectattr('type', 'defined') | selectattr('type', 'equalto', 'in')
+          | selectattr('action', 'defined') | selectattr('action', 'in', ['DROP', 'REJECT'])
+          | selectattr('enable', 'defined')
+          | rejectattr('enable', 'equalto', 0) | rejectattr('enable', 'equalto', '0')
+          | selectattr('dport', 'defined') | rejectattr('dport', 'none')
+          | selectattr('dport', 'match', '^[0-9]+$')
+          | rejectattr('dport', 'equalto', node_fw_ssh_port | default('22') | string)
+          | selectattr('pos', 'defined') | map(attribute='pos') | map('int') | list) }}
         _node_fw_api_first_pos: >-
           {{ (((proxmox_call_rules.json.data | default([], true))
                 | selectattr('type', 'defined') | selectattr('type', 'equalto', 'in')
@@ -122,15 +150,20 @@
     ## state BEFORE the task, so they cannot reference each other.
     ####
 
+    - name: FIREWALL - NODE - ENABLE MANAGEMENT ACCESS - WHICH DENIES ACTUALLY COVER THESE PORTS
+      set_fact:
+        _node_fw_deny_cover_api: "{{ ((_node_fw_deny_all_pos | difference(_node_fw_deny_other_api_pos)) + [99999]) | sort | first }}"
+        _node_fw_deny_cover_ssh: "{{ ((_node_fw_deny_all_pos | difference(_node_fw_deny_other_ssh_pos)) + [99999]) | sort | first }}"
+
     - name: FIREWALL - NODE - ENABLE MANAGEMENT ACCESS - WHAT IS ALREADY IN PLACE, AND WELL PLACED
       set_fact:
-        _node_fw_has_api: "{{ (_node_fw_api_first_pos | int) < (_node_fw_first_deny_pos | int) }}"
-        _node_fw_has_ssh: "{{ (_node_fw_ssh_first_pos | int) < (_node_fw_first_deny_pos | int) }}"
+        _node_fw_has_api: "{{ (_node_fw_api_first_pos | int) < (_node_fw_deny_cover_api | int) }}"
+        _node_fw_has_ssh: "{{ (_node_fw_ssh_first_pos | int) < (_node_fw_deny_cover_ssh | int) }}"
 
     - name: FIREWALL - NODE - ENABLE MANAGEMENT ACCESS - THE CHAIN AS IT READS NOW
       debug:
         msg: >-
-          first deny at {{ _node_fw_first_deny_pos }} :
+          first covering deny, api at {{ _node_fw_deny_cover_api }} and ssh at {{ _node_fw_deny_cover_ssh }} :
           api {{ node_fw_api_port | default('8006') }} at {{ _node_fw_api_first_pos }} ->
           {{ 'protected' if _node_fw_has_api else 'NOT PROTECTED, will be posted' }} ;
           ssh {{ node_fw_ssh_port | default('22') }} at {{ _node_fw_ssh_first_pos }} ->
@@ -187,6 +220,103 @@
       when: not _node_fw_has_ssh
 
     ####
+    ## THE API IGNORES THE POSITION ASKED FOR AND INSERTS AT THE TOP OF THE CHAIN.
+    ##
+    ## So posting is not knowing. This action used to report success without ever looking at
+    ## what it had produced, while the guest level action was taught to read back. That
+    ## asymmetry is what these four tasks close : read the chain again, say where the two
+    ## accepts actually landed, and REFUSE to report success if they are not reachable.
+    ####
+
+    - name: FIREWALL - NODE - ENABLE MANAGEMENT ACCESS - READ THE CHAIN BACK
+      uri:
+        url: "https://{{ proxmox_api_host }}/api2/json/nodes/{{ proxmox_node }}/firewall/rules"
+        method: GET
+        headers:
+          Authorization: "PVEAPIToken={{ proxmox_api_user }}!{{ proxmox_api_token_id }}={{ proxmox_api_token_secret }}"
+        validate_certs: "{{ proxmox_api_validate_certs | default(false) }}"
+      register: proxmox_call_after
+
+    - name: FIREWALL - NODE - ENABLE MANAGEMENT ACCESS - WHERE THE RULES ACTUALLY LANDED
+      set_fact:
+        _node_fw_api_pos_after: >-
+          {{ (((proxmox_call_after.json.data | default([], true))
+          | selectattr('type', 'defined') | selectattr('type', 'equalto', 'in')
+          | selectattr('action', 'defined') | selectattr('action', 'equalto', 'ACCEPT')
+          | selectattr('dport', 'defined')
+          | selectattr('dport', 'equalto', node_fw_api_port | default('8006') | string)
+          | selectattr('enable', 'defined')
+          | rejectattr('enable', 'equalto', 0) | rejectattr('enable', 'equalto', '0')
+          | selectattr('pos', 'defined') | map(attribute='pos') | map('int') | list)
+          + [99999]) | sort | first }}
+        _node_fw_ssh_pos_after: >-
+          {{ (((proxmox_call_after.json.data | default([], true))
+          | selectattr('type', 'defined') | selectattr('type', 'equalto', 'in')
+          | selectattr('action', 'defined') | selectattr('action', 'equalto', 'ACCEPT')
+          | selectattr('dport', 'defined')
+          | selectattr('dport', 'equalto', node_fw_ssh_port | default('22') | string)
+          | selectattr('enable', 'defined')
+          | rejectattr('enable', 'equalto', 0) | rejectattr('enable', 'equalto', '0')
+          | selectattr('pos', 'defined') | map(attribute='pos') | map('int') | list)
+          + [99999]) | sort | first }}
+        _node_fw_deny_all_after: >-
+          {{ ((proxmox_call_after.json.data | default([], true))
+          | selectattr('type', 'defined') | selectattr('type', 'equalto', 'in')
+          | selectattr('action', 'defined') | selectattr('action', 'in', ['DROP', 'REJECT'])
+          | selectattr('enable', 'defined')
+          | rejectattr('enable', 'equalto', 0) | rejectattr('enable', 'equalto', '0')
+          | selectattr('pos', 'defined') | map(attribute='pos') | map('int') | list) }}
+        _node_fw_deny_other_api_after: >-
+          {{ ((proxmox_call_after.json.data | default([], true))
+          | selectattr('type', 'defined') | selectattr('type', 'equalto', 'in')
+          | selectattr('action', 'defined') | selectattr('action', 'in', ['DROP', 'REJECT'])
+          | selectattr('enable', 'defined')
+          | rejectattr('enable', 'equalto', 0) | rejectattr('enable', 'equalto', '0')
+          | selectattr('dport', 'defined') | rejectattr('dport', 'none')
+          | selectattr('dport', 'match', '^[0-9]+$')
+          | rejectattr('dport', 'equalto', node_fw_api_port | default('8006') | string)
+          | selectattr('pos', 'defined') | map(attribute='pos') | map('int') | list) }}
+        _node_fw_deny_other_ssh_after: >-
+          {{ ((proxmox_call_after.json.data | default([], true))
+          | selectattr('type', 'defined') | selectattr('type', 'equalto', 'in')
+          | selectattr('action', 'defined') | selectattr('action', 'in', ['DROP', 'REJECT'])
+          | selectattr('enable', 'defined')
+          | rejectattr('enable', 'equalto', 0) | rejectattr('enable', 'equalto', '0')
+          | selectattr('dport', 'defined') | rejectattr('dport', 'none')
+          | selectattr('dport', 'match', '^[0-9]+$')
+          | rejectattr('dport', 'equalto', node_fw_ssh_port | default('22') | string)
+          | selectattr('pos', 'defined') | map(attribute='pos') | map('int') | list) }}
+
+    - name: FIREWALL - NODE - ENABLE MANAGEMENT ACCESS - WHICH DENIES COVER THEM NOW
+      set_fact:
+        _node_fw_deny_cover_api_after: "{{ ((_node_fw_deny_all_after | difference(_node_fw_deny_other_api_after)) + [99999]) | sort | first }}"
+        _node_fw_deny_cover_ssh_after: "{{ ((_node_fw_deny_all_after | difference(_node_fw_deny_other_ssh_after)) + [99999]) | sort | first }}"
+
+    - name: FIREWALL - NODE - ENABLE MANAGEMENT ACCESS - REFUSE TO REPORT A CHAIN THAT GRANTS NOTHING
+      ansible.builtin.assert:
+        that:
+          - (_node_fw_api_pos_after | int) < 99999
+          - (_node_fw_ssh_pos_after | int) < 99999
+          - (_node_fw_api_pos_after | int) < (_node_fw_deny_cover_api_after | int)
+          - (_node_fw_ssh_pos_after | int) < (_node_fw_deny_cover_ssh_after | int)
+        fail_msg: >-
+          The rules were written but the way back in is NOT in place, so this action will not
+          report success. What the chain holds now : the web interface port
+          {{ node_fw_api_port | default('8006') }} {{ 'is not accepted by any active rule' if (_node_fw_api_pos_after | int) >= 99999 else 'is accepted at position ' ~ _node_fw_api_pos_after }} ;
+          SSH {{ node_fw_ssh_port | default('22') }} {{ 'is not accepted by any active rule' if (_node_fw_ssh_pos_after | int) >= 99999 else 'is accepted at position ' ~ _node_fw_ssh_pos_after }}.
+          A rule that exists but is disabled does not count as accepted, and an accept placed
+          below a rule that blocks the same port never runs. Read the chain, remove what is in
+          the way, and run this action again. Turning the firewall on as it stands would cut
+          remote access, and the arming action will refuse it.
+        success_msg: >-
+          way back in confirmed : api accepted at position {{ _node_fw_api_pos_after }},
+          ssh at {{ _node_fw_ssh_pos_after }}, first covering deny at
+          {{ 'none' if (_node_fw_deny_cover_api_after | int) >= 99999 else _node_fw_deny_cover_api_after }} for the api and
+          {{ 'none' if (_node_fw_deny_cover_ssh_after | int) >= 99999 else _node_fw_deny_cover_ssh_after }} for ssh
+
+    ####
+
+    ####
     ####
 
     ####
@@ -212,8 +342,9 @@
               'node_fw_dport': (node_fw_api_port | default('8006')),
               'node_fw_pos_requested': (node_fw_api_pos | default(0)),
               'node_fw_pos_before': _node_fw_api_first_pos,
+                'node_fw_pos_after': _node_fw_api_pos_after,
               'node_fw_already_present': _node_fw_has_api,
-              'node_fw_first_deny_pos_before': _node_fw_first_deny_pos,
+              'node_fw_covering_deny_pos_before': _node_fw_deny_cover_api,
               'node_fw_mgmt_source': (node_fw_mgmt_source | default(omit)),
             },
             {
@@ -224,8 +355,9 @@
               'node_fw_dport': (node_fw_ssh_port | default('22')),
               'node_fw_pos_requested': (node_fw_ssh_pos | default(1)),
               'node_fw_pos_before': _node_fw_ssh_first_pos,
+                'node_fw_pos_after': _node_fw_ssh_pos_after,
               'node_fw_already_present': _node_fw_has_ssh,
-              'node_fw_first_deny_pos_before': _node_fw_first_deny_pos,
+              'node_fw_covering_deny_pos_before': _node_fw_deny_cover_ssh,
               'node_fw_mgmt_source': (node_fw_mgmt_source | default(omit)),
             }
           ] }}
