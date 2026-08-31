@@ -67,6 +67,30 @@
                 | rejectattr('enable', 'equalto', 0) | rejectattr('enable', 'equalto', '0')
                 | selectattr('pos', 'defined') | map(attribute='pos') | map('int') | list)
               + [99999]) | sort | first }}
+        ####
+        ## A DENY ONLY COUNTS AGAINST A PORT IF IT CAN REACH IT.
+        ## Measured : an active DROP on another port sitting above an ACCEPT on 22 leaves 22 OPEN.
+        ## `_vm_fw_first_deny_pos` above keeps its own meaning : is there ANY deny at all, which is
+        ## how this action knows whether the blanket drop it posts is already there. The two are
+        ## different questions and they must not be merged.
+        ####
+        _vm_fw_deny_all_pos: >-
+                {{ ((proxmox_call_rules.json.data | default([], true))
+                | selectattr('type', 'defined') | selectattr('type', 'equalto', 'in')
+                | selectattr('action', 'defined') | selectattr('action', 'in', ['DROP', 'REJECT'])
+                | selectattr('enable', 'defined')
+                | rejectattr('enable', 'equalto', 0) | rejectattr('enable', 'equalto', '0')
+                | selectattr('pos', 'defined') | map(attribute='pos') | map('int') | list) }}
+        _vm_fw_deny_other_ssh_pos: >-
+                {{ ((proxmox_call_rules.json.data | default([], true))
+                | selectattr('type', 'defined') | selectattr('type', 'equalto', 'in')
+                | selectattr('action', 'defined') | selectattr('action', 'in', ['DROP', 'REJECT'])
+                | selectattr('enable', 'defined')
+                | rejectattr('enable', 'equalto', 0) | rejectattr('enable', 'equalto', '0')
+                | selectattr('dport', 'defined') | rejectattr('dport', 'none')
+                | selectattr('dport', 'match', '^[0-9]+$')
+                | rejectattr('dport', 'equalto', vm_fw_ssh_port | default('22') | string)
+                | selectattr('pos', 'defined') | map(attribute='pos') | map('int') | list) }}
         _vm_fw_ssh_first_pos: >-
           {{ (((proxmox_call_rules.json.data | default([], true))
                 | selectattr('type', 'defined') | selectattr('type', 'equalto', 'in')
@@ -77,9 +101,13 @@
                 | selectattr('pos', 'defined') | map(attribute='pos') | map('int') | list)
               + [99999]) | sort | first }}
 
+    - name: FIREWALL - VM - ENABLE DEFAULT SSH RULES - WHICH DENIES ACTUALLY COVER SSH
+      set_fact:
+        _vm_fw_deny_cover_ssh: "{{ ((_vm_fw_deny_all_pos | difference(_vm_fw_deny_other_ssh_pos)) + [99999]) | sort | first }}"
+
     - name: FIREWALL - VM - ENABLE DEFAULT SSH RULES - WHAT IS ALREADY IN PLACE
       set_fact:
-        _vm_fw_has_ssh_accept: "{{ (_vm_fw_ssh_first_pos | int) < (_vm_fw_first_deny_pos | int) }}"
+        _vm_fw_has_ssh_accept: "{{ (_vm_fw_ssh_first_pos | int) < (_vm_fw_deny_cover_ssh | int) }}"
         _vm_fw_has_drop_all: "{{ (_vm_fw_first_deny_pos | int) < 99999 }}"
     ####
     ## THE DROP GOES FIRST, AND THAT IS NOT A STYLE CHOICE.
@@ -177,6 +205,23 @@
                 | rejectattr('enable', 'equalto', 0) | rejectattr('enable', 'equalto', '0')
                 | selectattr('pos', 'defined') | map(attribute='pos') | map('int') | list)
               + [99999]) | sort | first }}
+        _vm_fw_deny_all_after: >-
+                {{ ((proxmox_call_after.json.data | default([], true))
+                | selectattr('type', 'defined') | selectattr('type', 'equalto', 'in')
+                | selectattr('action', 'defined') | selectattr('action', 'in', ['DROP', 'REJECT'])
+                | selectattr('enable', 'defined')
+                | rejectattr('enable', 'equalto', 0) | rejectattr('enable', 'equalto', '0')
+                | selectattr('pos', 'defined') | map(attribute='pos') | map('int') | list) }}
+        _vm_fw_deny_other_ssh_after: >-
+                {{ ((proxmox_call_after.json.data | default([], true))
+                | selectattr('type', 'defined') | selectattr('type', 'equalto', 'in')
+                | selectattr('action', 'defined') | selectattr('action', 'in', ['DROP', 'REJECT'])
+                | selectattr('enable', 'defined')
+                | rejectattr('enable', 'equalto', 0) | rejectattr('enable', 'equalto', '0')
+                | selectattr('dport', 'defined') | rejectattr('dport', 'none')
+                | selectattr('dport', 'match', '^[0-9]+$')
+                | rejectattr('dport', 'equalto', vm_fw_ssh_port | default('22') | string)
+                | selectattr('pos', 'defined') | map(attribute='pos') | map('int') | list) }}
         _vm_fw_ssh_pos_after: >-
           {{ (((proxmox_call_after.json.data | default([], true))
                 | selectattr('type', 'defined') | selectattr('type', 'equalto', 'in')
@@ -187,11 +232,15 @@
                 | selectattr('pos', 'defined') | map(attribute='pos') | map('int') | list)
               + [99999]) | sort | first }}
 
+    - name: FIREWALL - VM - ENABLE DEFAULT SSH RULES - WHICH DENIES COVER SSH NOW
+      set_fact:
+        _vm_fw_deny_cover_ssh_after: "{{ ((_vm_fw_deny_all_after | difference(_vm_fw_deny_other_ssh_after)) + [99999]) | sort | first }}"
+
     - name: FIREWALL - VM - ENABLE DEFAULT SSH RULES - REFUSE TO REPORT A CHAIN THAT GRANTS NOTHING
       ansible.builtin.assert:
         that:
           - (_vm_fw_ssh_pos_after | int) < 99999
-          - (_vm_fw_ssh_pos_after | int) < (_vm_fw_deny_pos_after | int)
+          - (_vm_fw_ssh_pos_after | int) < (_vm_fw_deny_cover_ssh_after | int)
         fail_msg: >-
           The rules were written but the guest is NOT reachable on ssh, so this action will not
           report success. What the chain holds now : SSH {{ vm_fw_ssh_port | default('22') }}

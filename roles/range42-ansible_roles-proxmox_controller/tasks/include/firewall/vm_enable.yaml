@@ -40,14 +40,27 @@
 
     - name: FIREWALL - VM - ENABLE - WHERE THE CHAIN STARTS DENYING, AND WHERE SSH IS ACCEPTED
       set_fact:
-        _vm_fw_first_deny_pos: >-
-          {{ (((proxmox_call_rules.json.data | default([], true))
+        ####
+        ## A DENY ONLY COUNTS IF IT CAN REACH SSH.
+        ## Measured : an active DROP on another port above an ACCEPT on 22 leaves 22 OPEN.
+        ####
+        _vm_fw_deny_all_pos: >-
+                {{ ((proxmox_call_rules.json.data | default([], true))
                 | selectattr('type', 'defined') | selectattr('type', 'equalto', 'in')
                 | selectattr('action', 'defined') | selectattr('action', 'in', ['DROP', 'REJECT'])
                 | selectattr('enable', 'defined')
                 | rejectattr('enable', 'equalto', 0) | rejectattr('enable', 'equalto', '0')
-                | selectattr('pos', 'defined') | map(attribute='pos') | map('int') | list)
-              + [99999]) | sort | first }}
+                | selectattr('pos', 'defined') | map(attribute='pos') | map('int') | list) }}
+        _vm_fw_deny_other_ssh_pos: >-
+                {{ ((proxmox_call_rules.json.data | default([], true))
+                | selectattr('type', 'defined') | selectattr('type', 'equalto', 'in')
+                | selectattr('action', 'defined') | selectattr('action', 'in', ['DROP', 'REJECT'])
+                | selectattr('enable', 'defined')
+                | rejectattr('enable', 'equalto', 0) | rejectattr('enable', 'equalto', '0')
+                | selectattr('dport', 'defined') | rejectattr('dport', 'none')
+                | selectattr('dport', 'match', '^[0-9]+$')
+                | rejectattr('dport', 'equalto', vm_fw_ssh_port | default('22') | string)
+                | selectattr('pos', 'defined') | map(attribute='pos') | map('int') | list) }}
         _vm_fw_ssh_first_pos: >-
           {{ (((proxmox_call_rules.json.data | default([], true))
                 | selectattr('type', 'defined') | selectattr('type', 'equalto', 'in')
@@ -59,9 +72,13 @@
                 | selectattr('pos', 'defined') | map(attribute='pos') | map('int') | list)
               + [99999]) | sort | first }}
 
+    - name: FIREWALL - VM - ENABLE - WHICH DENIES ACTUALLY COVER SSH
+      set_fact:
+        _vm_fw_deny_cover_ssh: "{{ ((_vm_fw_deny_all_pos | difference(_vm_fw_deny_other_ssh_pos)) + [99999]) | sort | first }}"
+
     - name: FIREWALL - VM - ENABLE - IS SSH ACCEPTED, AND ABOVE THE DENY
       set_fact:
-        _vm_fw_has_ssh: "{{ (_vm_fw_ssh_first_pos | int) < (_vm_fw_first_deny_pos | int) }}"
+        _vm_fw_has_ssh: "{{ (_vm_fw_ssh_first_pos | int) < (_vm_fw_deny_cover_ssh | int) }}"
 
     - name: FIREWALL - VM - ENABLE - REFUSE TO ARM A GUEST WITH NO SSH
       ansible.builtin.assert:
@@ -73,15 +90,59 @@
           the internet, from other guests and from students, but never from the machines that
           administer it - recovering it would need the console.
           What its rule chain says right now : SSH
-          {{ 'is not accepted by any active rule' if (_vm_fw_ssh_first_pos | int) >= 99999 else ('is accepted at position ' ~ _vm_fw_ssh_first_pos if _vm_fw_has_ssh else 'is accepted at position ' ~ _vm_fw_ssh_first_pos ~ ', but a blocking rule sits above it at position ' ~ _vm_fw_first_deny_pos ~ ', so that accept never runs') }} ;
-          and {{ 'no rule blocks inbound traffic explicitly, but with no accepted path the default policy drops it anyway' if (_vm_fw_first_deny_pos | int) >= 99999 else 'the first rule that blocks inbound traffic is at position ' ~ _vm_fw_first_deny_pos }}.
+          {{ 'is not accepted by any active rule' if (_vm_fw_ssh_first_pos | int) >= 99999 else ('is accepted at position ' ~ _vm_fw_ssh_first_pos if _vm_fw_has_ssh else 'is accepted at position ' ~ _vm_fw_ssh_first_pos ~ ', but a blocking rule sits above it at position ' ~ _vm_fw_deny_cover_ssh ~ ', so that accept never runs') }} ;
+          and {{ 'no rule blocks inbound traffic explicitly, but with no accepted path the default policy drops it anyway' if (_vm_fw_deny_cover_ssh | int) >= 99999 else 'the first rule that blocks inbound traffic is at position ' ~ _vm_fw_deny_cover_ssh }}.
           A rule that exists but is disabled does not count as accepted.
           To fix this, add the default SSH rules first with the role action
           `firewall_vm_enable_default_ssh_rules`, then run this one again.
         success_msg: >-
           ssh reachable on {{ vm_fw_ssh_port | default('22') }} at position
-          {{ _vm_fw_ssh_first_pos }}, first active deny at {{ _vm_fw_first_deny_pos }} -
+          {{ _vm_fw_ssh_first_pos }}, first deny covering ssh at {{ _vm_fw_deny_cover_ssh }} -
           arming the guest firewall
+
+    ####
+    ## ARMING A GUEST WHILE THE DATACENTER SWITCH IS OFF FILTERS NOTHING.
+    ##
+    ## Measured : with the datacenter switch at zero, neither INPUT nor FORWARD is routed to
+    ## the firewall and no chain is installed, whatever the node and guest switches say. So a
+    ## guest armed with isolation rules in place, on a cluster whose datacenter is not armed,
+    ## isolates NOTHING. The rules are listed by the api, the switch reads 1, the interface
+    ## shows the chain, and zero packets are filtered.
+    ##
+    ## This WARNS, it never refuses. Refusing would block a legitimate order of operations,
+    ## where guests are prepared before the datacenter is armed. The point is only that the
+    ## operator must not believe the machine is protected when it is not.
+    ##
+    ## The reverse case matters as much and is named in the message : arming the datacenter
+    ## later activates every already armed guest chain AT ONCE.
+    ####
+
+    - name: FIREWALL - VM - ENABLE - IS THE DATACENTER SWITCH ON AT ALL
+      uri:
+        url: "https://{{ proxmox_api_host }}/api2/json/cluster/firewall/options"
+        method: GET
+        headers:
+          Authorization: "PVEAPIToken={{ proxmox_api_user }}!{{ proxmox_api_token_id }}={{ proxmox_api_token_secret }}"
+        validate_certs: "{{ proxmox_api_validate_certs | default(false) }}"
+      register: proxmox_call_dc_options
+      failed_when: false
+
+    - name: FIREWALL - VM - ENABLE - WHAT THE DATACENTER SWITCH READS
+      set_fact:
+        _vm_fw_dc_switch: "{{ (proxmox_call_dc_options.json.data | default({}, true)).enable | default(0) }}"
+
+    - name: FIREWALL - VM - ENABLE - WARN THAT THIS ARMING WILL NOT FILTER ANYTHING
+      debug:
+        msg: >-
+          WARNING. The datacenter firewall switch is OFF, so arming this guest filters NOTHING.
+          Its rules will be listed, its switch will read 1, and no packet will be filtered by
+          any of them. Nothing in the interface says so. This action continues, because
+          preparing a guest before the datacenter is armed is a legitimate order of operations.
+          Two things follow. Until the datacenter is armed, this guest is NOT isolated. And when
+          the datacenter is armed, every guest chain already in place becomes active at the same
+          instant, so a guest whose chain holds no active accept on its administration port
+          loses that access at that moment, not when its rule was posted.
+      when: (_vm_fw_dc_switch | int) == 0
 
     - name: FIREWALL - VM - ENABLE
       uri:
