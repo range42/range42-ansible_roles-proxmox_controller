@@ -38,6 +38,15 @@
         validate_certs: "{{ proxmox_api_validate_certs | default(false) }}"
       register: proxmox_call_rules
 
+    - name: FIREWALL - VM - ENABLE - WHAT THE CHAIN HOLDS
+      set_fact:
+        _fw_rules_total: "{{ (proxmox_call_rules.json.data | default([], true)) | length }}"
+        _fw_rules_active: >-
+          {{ (proxmox_call_rules.json.data | default([], true))
+             | selectattr('enable', 'defined')
+             | rejectattr('enable', 'equalto', 0) | rejectattr('enable', 'equalto', '0')
+             | list | length }}
+
     - name: FIREWALL - VM - ENABLE - WHERE THE CHAIN STARTS DENYING, AND WHERE SSH IS ACCEPTED
       set_fact:
         ####
