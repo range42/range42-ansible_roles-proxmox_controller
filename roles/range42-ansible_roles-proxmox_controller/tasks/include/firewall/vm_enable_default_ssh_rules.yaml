@@ -59,20 +59,9 @@
 
     - name: FIREWALL - VM - ENABLE DEFAULT SSH RULES - WHERE THE CHAIN STARTS DENYING
       set_fact:
-        _vm_fw_first_deny_pos: >-
-          {{ (((proxmox_call_rules.json.data | default([], true))
-                | selectattr('type', 'defined') | selectattr('type', 'equalto', 'in')
-                | selectattr('action', 'defined') | selectattr('action', 'in', ['DROP', 'REJECT'])
-                | selectattr('enable', 'defined')
-                | rejectattr('enable', 'equalto', 0) | rejectattr('enable', 'equalto', '0')
-                | selectattr('pos', 'defined') | map(attribute='pos') | map('int') | list)
-              + [99999]) | sort | first }}
         ####
         ## A DENY ONLY COUNTS AGAINST A PORT IF IT CAN REACH IT.
         ## Measured : an active DROP on another port sitting above an ACCEPT on 22 leaves 22 OPEN.
-        ## `_vm_fw_first_deny_pos` above keeps its own meaning : is there ANY deny at all, which is
-        ## how this action knows whether the blanket drop it posts is already there. The two are
-        ## different questions and they must not be merged.
         ####
         _vm_fw_deny_all_pos: >-
                 {{ ((proxmox_call_rules.json.data | default([], true))
@@ -108,47 +97,22 @@
     - name: FIREWALL - VM - ENABLE DEFAULT SSH RULES - WHAT IS ALREADY IN PLACE
       set_fact:
         _vm_fw_has_ssh_accept: "{{ (_vm_fw_ssh_first_pos | int) < (_vm_fw_deny_cover_ssh | int) }}"
-        _vm_fw_has_drop_all: "{{ (_vm_fw_first_deny_pos | int) < 99999 }}"
     ####
-    ## THE DROP GOES FIRST, AND THAT IS NOT A STYLE CHOICE.
+    ## NO DENY IS POSTED HERE, AND THAT IS DELIBERATE.
     ##
-    ## Measured on a test guest : the api IGNORES the `pos` of a rule creation and INSERTS AT
-    ## THE TOP. Two rules posted with pos 0 came back in the reverse order of their posting.
-    ## So posting the accept first and the drop second put the DROP above the ACCEPT, and the
-    ## accept granted nothing - the exact configuration this action exists to prevent.
+    ## Measured : PVE ends every guest chain with `-j PVEFW-Drop` then `-j DROP`, whatever the
+    ## chain holds. A chain carrying only an unrelated DROP and an ACCEPT on 22 still compiles
+    ## with both. A blanket deny of our own is therefore redundant.
     ##
-    ## Posting the deny first therefore leaves the accept on top, which is what is wanted.
-    ## The `pos` still passed below is decoration : it is echoed by the api and ignored. It
-    ## stays only because removing it would suggest the caller has a say in the placement.
+    ## It was also the only way this action could cut a guest off. Creation inserts AT THE TOP,
+    ## so on a chain that already had an accept lower down and no active deny, the blanket deny
+    ## landed ABOVE that accept and the chain granted nothing.
     ##
-    ## This ordering is an OBSERVED behaviour, not a documented contract, which is why the
-    ## chain is read back afterwards and the result asserted rather than assumed.
+    ## One rule is posted now, the accept. Nothing this action writes can sit above it.
+    ##
+    ## Out of scope : a guest whose `policy_in` is ACCEPT has no terminal deny. This action
+    ## neither reads nor sets that policy.
     ####
-
-
-
-    ####
-    ####
-    ## The drop SECOND, immediately below it.
-    ####
-
-    - name: FIREWALL - VM - ENABLE DEFAULT SSH RULES - DROP EVERYTHING ELSE INBOUND
-      uri:
-        url: "https://{{ proxmox_api_host }}/api2/json/nodes/{{ proxmox_node }}/qemu/{{ vm_id }}/firewall/rules"
-        method: POST
-        headers:
-          Authorization: "PVEAPIToken={{ proxmox_api_user }}!{{ proxmox_api_token_id }}={{ proxmox_api_token_secret }}"
-        body_format: json
-        body:
-          type: "in"
-          action: "DROP"
-          enable: 1
-          pos: "{{ vm_fw_drop_all_pos | default(1) }}"
-          comment: "{{ vm_fw_drop_all_comment | default('range42 default deny inbound') }}"
-        validate_certs: "{{ proxmox_api_validate_certs | default(false) }}"
-      register: proxmox_call_drop
-      when: not _vm_fw_has_drop_all
-
 
     ####
     ####
@@ -299,16 +263,6 @@
               'vm_fw_pos_after': _vm_fw_ssh_pos_after,
               'vm_fw_already_present': _vm_fw_has_ssh_accept,
               'vm_fw_mgmt_source': (vm_fw_mgmt_source | default(omit)),
-            },
-            {
-              'action': "firewall_vm_enable_default_ssh_rules",
-              'source': "proxmox",
-              'proxmox_node': proxmox_node,
-              'vm_id': vm_id,
-              'vm_fw_rule': "drop_all",
-              'vm_fw_pos_requested': (vm_fw_drop_all_pos | default(1)),
-              'vm_fw_pos_after': _vm_fw_deny_pos_after,
-              'vm_fw_already_present': _vm_fw_has_drop_all,
             }
           ] }}
 
