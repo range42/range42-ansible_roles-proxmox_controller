@@ -1,5 +1,29 @@
 ---
 ##
+## >>> NOT LOADED. THIS FILE IS A DRAFT, THE ROLE NEVER READS IT. <<<
+## The role includes its action files by explicit path, so this suffix is inert.
+##
+## WHAT THIS DRAFT ADDS. This guard reads only the datacenter chain, and that chain does not
+## decide alone. Measured : an active deny in a NODE chain sits ahead of the datacenter accepts
+## and wins, so a node that denies a management port shadows the accepts this guard checks and
+## it would permit an arming that cuts access. The draft enumerates the cluster nodes, reads
+## each chain, and refuses when an ARMED node shadows either port.
+##
+## WHY ONLY ARMED NODES. Measured : with a node switch at zero its host chain is not installed
+## at all, so its rules apply to nothing. Counting a disarmed node would refuse on a state that
+## works. A node armed later is caught by its own guard, which reads its own chain first.
+##
+## WHAT MUST BE RE-VERIFIED BEFORE THIS IS COMMITTED, once the four earlier commits have run :
+##   1. The covering deny predicate, if the field test changed it, must be changed here too.
+##   2. That GET /nodes returns what this expects, a list of objects carrying `node`. It has
+##      never been called by this role. If it returns something else, the loop below is wrong.
+##   3. THE MULTI NODE PATH IS NOT PROVEN. It was written against simulated clusters only, no
+##      two node infrastructure was available. On a single node the loop runs once and proves
+##      nothing about the aggregation. Say so in whatever closes this.
+##   4. That the extra calls, two per node, are acceptable on a large cluster. Nobody measured
+##      the cost.
+##
+##
 ## TURN THE DATACENTER FIREWALL ON - AND REFUSE TO DO IT BLIND.
 ##
 ## PUT /cluster/firewall/options with enable: 1.
@@ -44,7 +68,7 @@
 
     - name: FIREWALL - DATACENTER - ENABLE - WHERE THE CHAIN STARTS DENYING
       set_fact:
-        _dc_fw_first_deny_pos: >-
+        _dc_fw_cover_api: >-
           {{ (((proxmox_call_rules.json.data | default([], true))
           | selectattr('type', 'defined') | selectattr('type', 'equalto', 'in')
           | selectattr('action', 'defined') | selectattr('action', 'in', ['DROP', 'REJECT'])
@@ -52,6 +76,36 @@
           | rejectattr('enable', 'equalto', 0) | rejectattr('enable', 'equalto', '0')
           | selectattr('pos', 'defined') | map(attribute='pos') | map('int') | list)
           + [99999]) | sort | first }}
+        ####
+        ## A DENY ONLY COUNTS IF IT CAN REACH THE PORT WE PROTECT.
+        ####
+        _dc_fw_deny_all_pos: >-
+                {{ ((proxmox_call_rules.json.data | default([], true))
+                | selectattr('type', 'defined') | selectattr('type', 'equalto', 'in')
+                | selectattr('action', 'defined') | selectattr('action', 'in', ['DROP', 'REJECT'])
+                | selectattr('enable', 'defined')
+                | rejectattr('enable', 'equalto', 0) | rejectattr('enable', 'equalto', '0')
+                | selectattr('pos', 'defined') | map(attribute='pos') | map('int') | list) }}
+        _dc_fw_deny_other_api_pos: >-
+                {{ ((proxmox_call_rules.json.data | default([], true))
+                | selectattr('type', 'defined') | selectattr('type', 'equalto', 'in')
+                | selectattr('action', 'defined') | selectattr('action', 'in', ['DROP', 'REJECT'])
+                | selectattr('enable', 'defined')
+                | rejectattr('enable', 'equalto', 0) | rejectattr('enable', 'equalto', '0')
+                | selectattr('dport', 'defined') | rejectattr('dport', 'none')
+                | selectattr('dport', 'match', '^[0-9]+$')
+                | rejectattr('dport', 'equalto', dc_fw_api_port | default('8006') | string)
+                | selectattr('pos', 'defined') | map(attribute='pos') | map('int') | list) }}
+        _dc_fw_deny_other_ssh_pos: >-
+                {{ ((proxmox_call_rules.json.data | default([], true))
+                | selectattr('type', 'defined') | selectattr('type', 'equalto', 'in')
+                | selectattr('action', 'defined') | selectattr('action', 'in', ['DROP', 'REJECT'])
+                | selectattr('enable', 'defined')
+                | rejectattr('enable', 'equalto', 0) | rejectattr('enable', 'equalto', '0')
+                | selectattr('dport', 'defined') | rejectattr('dport', 'none')
+                | selectattr('dport', 'match', '^[0-9]+$')
+                | rejectattr('dport', 'equalto', dc_fw_ssh_port | default('22') | string)
+                | selectattr('pos', 'defined') | map(attribute='pos') | map('int') | list) }}
         _dc_fw_api_first_pos: >-
           {{ (((proxmox_call_rules.json.data | default([], true))
           | selectattr('type', 'defined') | selectattr('type', 'equalto', 'in')
@@ -77,27 +131,188 @@
     ## task, so these two cannot read the three positions from the same one.
     ####
 
-    - name: FIREWALL - DATACENTER - ENABLE - WHAT IS ALREADY IN PLACE, AND WELL PLACED
+    - name: FIREWALL - DATACENTER - ENABLE - WHICH DENIES COVER THESE PORTS AT THE DATACENTER
       set_fact:
-        _dc_fw_has_api: "{{ (_dc_fw_api_first_pos | int) < (_dc_fw_first_deny_pos | int) }}"
-        _dc_fw_has_ssh: "{{ (_dc_fw_ssh_first_pos | int) < (_dc_fw_first_deny_pos | int) }}"
+        _dc_fw_cover_api: "{{ ((_dc_fw_deny_all_pos | difference(_dc_fw_deny_other_api_pos)) + [99999]) | sort | first }}"
+        _dc_fw_cover_ssh: "{{ ((_dc_fw_deny_all_pos | difference(_dc_fw_deny_other_ssh_pos)) + [99999]) | sort | first }}"
 
+    ####
+    ## THE DATACENTER CHAIN DOES NOT DECIDE ALONE, SO READING IT ALONE IS NOT ENOUGH.
+    ####
+
+    - name: FIREWALL - DATACENTER - ENABLE - LIST THE NODES OF THE CLUSTER
+      uri:
+        url: "https://{{ proxmox_api_host }}/api2/json/nodes"
+        method: GET
+        headers:
+          Authorization: "PVEAPIToken={{ proxmox_api_user }}!{{ proxmox_api_token_id }}={{ proxmox_api_token_secret }}"
+        validate_certs: "{{ proxmox_api_validate_certs | default(false) }}"
+      register: proxmox_call_nodes
+      failed_when: false
+
+    - name: FIREWALL - DATACENTER - ENABLE - READ EACH NODE SWITCH
+      uri:
+        url: "https://{{ proxmox_api_host }}/api2/json/nodes/{{ item.node }}/firewall/options"
+        method: GET
+        headers:
+          Authorization: "PVEAPIToken={{ proxmox_api_user }}!{{ proxmox_api_token_id }}={{ proxmox_api_token_secret }}"
+        validate_certs: "{{ proxmox_api_validate_certs | default(false) }}"
+      register: proxmox_call_node_opts
+      failed_when: false
+      loop: "{{ proxmox_call_nodes.json.data | default([], true) }}"
+      loop_control:
+        label: "{{ item.node }}"
+
+    - name: FIREWALL - DATACENTER - ENABLE - READ EACH NODE CHAIN
+      uri:
+        url: "https://{{ proxmox_api_host }}/api2/json/nodes/{{ item.node }}/firewall/rules"
+        method: GET
+        headers:
+          Authorization: "PVEAPIToken={{ proxmox_api_user }}!{{ proxmox_api_token_id }}={{ proxmox_api_token_secret }}"
+        validate_certs: "{{ proxmox_api_validate_certs | default(false) }}"
+      register: proxmox_call_node_rules
+      failed_when: false
+      loop: "{{ proxmox_call_nodes.json.data | default([], true) }}"
+      loop_control:
+        label: "{{ item.node }}"
+
+    - name: FIREWALL - DATACENTER - ENABLE - WHICH ARMED NODES WOULD SHADOW THE MANAGEMENT ACCEPTS
+      vars:
+        _r: "{{ item.json.data | default([], true) }}"
+        _armed: "{{ ((proxmox_call_node_opts.results[idx].json.data | default({}, true)).enable | default(0) | int) != 0 }}"
+        _deny_all: "{{ _r | selectattr('type','defined') | selectattr('type','equalto','in') | selectattr('action','defined') | selectattr('action','in',['DROP','REJECT']) | selectattr('enable','defined') | rejectattr('enable','equalto',0) | rejectattr('enable','equalto','0') | selectattr('pos','defined') | map(attribute='pos') | map('int') | list }}"
+        _deny_oa: "{{ _r | selectattr('type','defined') | selectattr('type','equalto','in') | selectattr('action','defined') | selectattr('action','in',['DROP','REJECT']) | selectattr('enable','defined') | rejectattr('enable','equalto',0) | rejectattr('enable','equalto','0') | selectattr('dport','defined') | rejectattr('dport','none') | selectattr('dport','match','^[0-9]+$') | rejectattr('dport','equalto', dc_fw_api_port | default('8006') | string) | selectattr('pos','defined') | map(attribute='pos') | map('int') | list }}"
+        _deny_os: "{{ _r | selectattr('type','defined') | selectattr('type','equalto','in') | selectattr('action','defined') | selectattr('action','in',['DROP','REJECT']) | selectattr('enable','defined') | rejectattr('enable','equalto',0) | rejectattr('enable','equalto','0') | selectattr('dport','defined') | rejectattr('dport','none') | selectattr('dport','match','^[0-9]+$') | rejectattr('dport','equalto', dc_fw_ssh_port | default('22') | string) | selectattr('pos','defined') | map(attribute='pos') | map('int') | list }}"
+        _cov_a: "{{ ((_deny_all | difference(_deny_oa)) + [99999]) | sort | first }}"
+        _cov_s: "{{ ((_deny_all | difference(_deny_os)) + [99999]) | sort | first }}"
+        _acc_a: "{{ ((_r | selectattr('type','defined') | selectattr('type','equalto','in') | selectattr('action','defined') | selectattr('action','equalto','ACCEPT') | selectattr('dport','defined') | selectattr('dport', 'equalto', dc_fw_api_port | default('8006') | string) | selectattr('enable','defined') | rejectattr('enable','equalto',0) | rejectattr('enable','equalto','0') | selectattr('pos','defined') | map(attribute='pos') | map('int') | list) + [99999]) | sort | first }}"
+        _acc_s: "{{ ((_r | selectattr('type','defined') | selectattr('type','equalto','in') | selectattr('action','defined') | selectattr('action','equalto','ACCEPT') | selectattr('dport','defined') | selectattr('dport', 'equalto', dc_fw_ssh_port | default('22') | string) | selectattr('enable','defined') | rejectattr('enable','equalto',0) | rejectattr('enable','equalto','0') | selectattr('pos','defined') | map(attribute='pos') | map('int') | list) + [99999]) | sort | first }}"
+        _shadows: "{{ ((_cov_a | int) < 99999 and (_acc_a | int) >= (_cov_a | int)) or ((_cov_s | int) < 99999 and (_acc_s | int) >= (_cov_s | int)) }}"
+      set_fact:
+        _dc_fw_shadowing_nodes: "{{ (_dc_fw_shadowing_nodes | default([])) + ([item.item.node] if ((_armed | bool) and (_shadows | bool)) else []) }}"
+      loop: "{{ proxmox_call_node_rules.results | default([], true) }}"
+      loop_control:
+        index_var: idx
+        label: "{{ item.item.node }}"
+
+    ####
+    ## A NODE WE CANNOT READ IS A NODE WE CANNOT CLEAR.
+    ##
+    ## Node level api calls are proxied to the node itself, so a node that is down answers
+    ## nothing and its chain stays unknown. An unknown chain may hold a deny that shadows the
+    ## management accepts, and nothing here can prove it does not. So the guard REFUSES and
+    ## names the node, rather than arming the cluster on an assumption.
+    ##
+    ## Two cases are distinguished because they call for different actions. A node the cluster
+    ## reports as not online is DOWN : bring it back or remove it from the cluster. A node
+    ## reported online whose read still failed is a different problem - token scope, network,
+    ## certificate - and the operator needs to know which of the two it is facing.
+    ##
+    ## Without this, the two loops above aborted the play on the first unreachable node, which
+    ## is worse than either : the action neither armed nor explained.
+    ####
+
+    ####
+    ## AN EMPTY NODE LIST IS NEVER A REAL ANSWER.
+    ##
+    ## A cluster always holds at least the node answering this call, so a list of zero is a
+    ## symptom, not a fact. And the guard above is what makes this check necessary : with the
+    ## call unguarded the play aborted, which at least did not arm ; guarded but unchecked, an
+    ## empty list would run the loops zero times, leave every finding empty, and the verdict
+    ## would read as *all nodes clear* - arming the cluster on a failed read.
+    ##
+    ## So the listing is verified for itself : a non 200, or a list of zero, refuses.
+    ####
+
+    - name: FIREWALL - DATACENTER - ENABLE - WAS THE NODE LIST OBTAINED AT ALL
+      set_fact:
+        _dc_fw_nodes_listed: >-
+          {{ ((proxmox_call_nodes.status | default(0) | int) == 200)
+          and (((proxmox_call_nodes.json.data | default([], true)) | length) > 0) }}
+
+    - name: FIREWALL - DATACENTER - ENABLE - WHICH NODES COULD NOT BE READ
+      set_fact:
+        _dc_fw_offline_nodes: >-
+          {{ ((proxmox_call_nodes.json.data | default([], true))
+          | selectattr('status', 'defined') | rejectattr('status', 'equalto', 'online')
+          | map(attribute='node') | list) }}
+        _dc_fw_unreadable_nodes: >-
+          {{ ((proxmox_call_node_rules.results | default([], true))
+          | selectattr('failed', 'defined') | selectattr('failed')
+          | map(attribute='item.node') | list)
+          | union((proxmox_call_node_opts.results | default([], true))
+          | selectattr('failed', 'defined') | selectattr('failed')
+          | map(attribute='item.node') | list) }}
+
+    - name: FIREWALL - DATACENTER - ENABLE - THE VERDICT, BOTH LEVELS
+      set_fact:
+        _dc_fw_dc_chain_grants: "{{ ((_dc_fw_api_first_pos | int) < (_dc_fw_cover_api | int)) and ((_dc_fw_ssh_first_pos | int) < (_dc_fw_cover_ssh | int)) }}"
+        _dc_fw_all_nodes_read: "{{ (_dc_fw_nodes_listed | bool) and ((_dc_fw_offline_nodes | default([])) | length == 0) and ((_dc_fw_unreadable_nodes | default([])) | length == 0) }}"
+        _dc_fw_has_api: "{{ ((_dc_fw_api_first_pos | int) < (_dc_fw_cover_api | int)) and ((_dc_fw_shadowing_nodes | default([])) | length == 0) }}"
+        _dc_fw_has_ssh: "{{ ((_dc_fw_ssh_first_pos | int) < (_dc_fw_cover_ssh | int)) and ((_dc_fw_shadowing_nodes | default([])) | length == 0) }}"
+
+    ####
+    ## DEUX ASSERTS ET NON UN, PARCE QU UN SEUL MESSAGE MENTIRAIT.
+    ##
+    ## Les deux causes de refus demandent des actions opposees. Si un noeud arme recouvre un
+    ## accept, la chaine du datacenter est saine et il faut aller reparer LE NOEUD. Si la chaine
+    ## du datacenter est elle-meme sans voie de retour, il faut la garnir ELLE.
+    ##
+    ## Un assert unique rendait les deux recits a la suite et ils se contredisaient : le premier
+    ## disait *le datacenter accorde, ce n est pas lui*, le second *vous perdriez l acces sur tous
+    ## les noeuds a la fois, aucune voie acceptee*. Conditionner le second de l interieur ne suffit
+    ## pas, le paragraphe portant du texte hors de toute expression.
+    ##
+    ## Le premier assert arretant la play, le second ne s affiche jamais a tort. Et s il y a les
+    ## DEUX problemes, son `when` le saute et c est le recit du datacenter qui parle : la chaine
+    ## du datacenter est le probleme premier, un noeud ne pouvant recouvrir qu un accept existant.
+    ####
+
+    - name: FIREWALL - DATACENTER - ENABLE - REFUSE TO ARM A CLUSTER A NODE WOULD SHADOW
+      ansible.builtin.assert:
+        that:
+          - ((_dc_fw_shadowing_nodes | default([])) | length) == 0
+        fail_msg: >-
+          Refused. The datacenter chain grants both ports, so it is NOT what blocks this arming.
+          One or more ARMED node(s) of this cluster carry a chain that shadows a management
+          accept : {{ (_dc_fw_shadowing_nodes | default([])) | join(", ") }}.
+          Node rules are emitted BEFORE datacenter rules in a single host chain and the first
+          match wins, so a deny on a node beats an accept at the datacenter - measured. Arming
+          the datacenter would activate that deny and drop the port on that node, and the
+          datacenter accept would never be reached.
+          Fix the node chain with the role action `firewall_node_enable_management_access`, or
+          disarm that node, then run this one again.
+        success_msg: >-
+          no armed node shadows the management accepts
+      when: _dc_fw_dc_chain_grants | bool
 
     - name: FIREWALL - DATACENTER - ENABLE - REFUSE TO ARM A CLUSTER WITH NO WAY BACK IN
       ansible.builtin.assert:
         that:
+          - _dc_fw_all_nodes_read | bool
           - _dc_fw_has_api | bool
           - _dc_fw_has_ssh | bool
         fail_msg: >-
+          {{ ('Refused. The list of cluster nodes could not be obtained, so the guard does not know which '
+              ~ 'nodes exist and cannot clear any of them. A cluster always holds at least the node answering '
+              ~ 'this call, so an empty list is a symptom and not a fact. Check the api token and the cluster '
+              ~ 'state, then run this again. ')
+             if not (_dc_fw_nodes_listed | bool) else '' }}
+          {{ ('Refused. This cluster has node(s) whose firewall chain could NOT be read, so the guard cannot clear them : '
+              ~ (((_dc_fw_offline_nodes | default([])) | length > 0) | ternary('not online : ' ~ ((_dc_fw_offline_nodes | default([])) | join(', ')) ~ '. ', ''))
+              ~ (((_dc_fw_unreadable_nodes | default([])) | length > 0) | ternary('online but unreadable : ' ~ ((_dc_fw_unreadable_nodes | default([])) | join(', ')) ~ '. ', ''))
+              ~ 'A chain that cannot be read may hold a deny that shadows the management accepts, and nothing here can prove it does not. '
+              ~ 'Bring the node back, or take it out of the cluster, then run this again. ')
+             if not (_dc_fw_all_nodes_read | bool) else '' }}
           Refused. Turning the datacenter firewall on would drop all inbound traffic on EVERY
           node of the cluster, not one, including the Proxmox web interface on port
           {{ dc_fw_api_port | default('8006') }} and SSH on port {{ dc_fw_ssh_port | default('22') }}.
           You would lose remote access to all of them at once, and getting it back would need
           console access on each.
           What the datacenter rule chain says right now : the web interface port
-          {{ 'is not accepted by any active rule' if (_dc_fw_api_first_pos | int) >= 99999 else ('is accepted at position ' ~ _dc_fw_api_first_pos if _dc_fw_has_api else 'is accepted at position ' ~ _dc_fw_api_first_pos ~ ', but a blocking rule sits above it at position ' ~ _dc_fw_first_deny_pos ~ ', so that accept never runs') }} ;
-          SSH {{ 'is not accepted by any active rule' if (_dc_fw_ssh_first_pos | int) >= 99999 else ('is accepted at position ' ~ _dc_fw_ssh_first_pos if _dc_fw_has_ssh else 'is accepted at position ' ~ _dc_fw_ssh_first_pos ~ ', but a blocking rule sits above it at position ' ~ _dc_fw_first_deny_pos ~ ', so that accept never runs') }} ;
-          and {{ 'no rule blocks inbound traffic explicitly, but with no accepted path the default policy drops it anyway' if (_dc_fw_first_deny_pos | int) >= 99999 else 'the first rule that blocks inbound traffic is at position ' ~ _dc_fw_first_deny_pos }}.
+          {{ 'is not accepted by any active rule' if (_dc_fw_api_first_pos | int) >= 99999 else ('is accepted at position ' ~ _dc_fw_api_first_pos ~ ' and nothing at THIS level blocks it' if (_dc_fw_cover_api | int) >= 99999 else 'is accepted at position ' ~ _dc_fw_api_first_pos ~ ', but a blocking rule sits above it at position ' ~ _dc_fw_cover_api ~ ', so that accept never runs') }} ;
+          SSH {{ 'is not accepted by any active rule' if (_dc_fw_ssh_first_pos | int) >= 99999 else ('is accepted at position ' ~ _dc_fw_ssh_first_pos ~ ' and nothing at THIS level blocks it' if (_dc_fw_cover_ssh | int) >= 99999 else 'is accepted at position ' ~ _dc_fw_ssh_first_pos ~ ', but a blocking rule sits above it at position ' ~ _dc_fw_cover_ssh ~ ', so that accept never runs') }} ;
+          and {{ 'no rule blocks inbound traffic explicitly, but with no accepted path the default policy drops it anyway' if (_dc_fw_cover_api | int) >= 99999 else 'the first rule that blocks inbound traffic is at position ' ~ _dc_fw_cover_api }}.
           A rule that exists but is disabled does not count as accepted.
           To fix this, add the accepted paths first with the role action
           `firewall_dc_enable_management_access`, then run this one again.
@@ -106,7 +321,7 @@
         success_msg: >-
           way back in confirmed at the datacenter :
           api at {{ _dc_fw_api_first_pos }}, ssh at {{ _dc_fw_ssh_first_pos }},
-          first deny at {{ _dc_fw_first_deny_pos }} - arming the datacenter firewall
+          first deny at {{ _dc_fw_cover_api }} - arming the datacenter firewall
 
     ####
     ####
@@ -140,7 +355,7 @@
 
           api_pos_before: "{{ _dc_fw_api_first_pos }}"
           ssh_pos_before: "{{ _dc_fw_ssh_first_pos }}"
-          first_deny_pos_before: "{{ _dc_fw_first_deny_pos }}"
+          first_deny_pos_before: "{{ _dc_fw_cover_api }}"
 
     - name: FIREWALL - DATACENTER - ENABLE - PRINT JSON
       debug:

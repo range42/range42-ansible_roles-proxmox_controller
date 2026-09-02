@@ -1,5 +1,26 @@
 ---
 ##
+## >>> NOT LOADED. THIS FILE IS A DRAFT, THE ROLE NEVER READS IT. <<<
+## The role includes its action files by explicit path, so this suffix is inert.
+##
+## WHAT THIS DRAFT ADDS, and why it is not committed yet.
+## It teaches this guard to read the DATACENTER chain as well as its own. Measured : the node
+## chain is evaluated BEFORE the datacenter chain in a single chain, first match wins, so a
+## port the node says nothing about is decided by the datacenter. Refusing on a bare node
+## chain is therefore a FALSE refusal.
+##
+## WHAT MUST BE RE-VERIFIED BEFORE THIS IS COMMITTED, once the four earlier commits have run
+## against a live node :
+##   1. That the covering deny predicate held in the field. It is the same one, copied here.
+##      If the field test changed it, change it here too, in _node_fw_deny_other_* below.
+##   2. That reading the datacenter chain from a node level action does not break the token
+##      scope. The other actions read /cluster paths, so it should hold, but it has not run.
+##   3. That the two level verdict below matches what the field shows for a node whose own
+##      accept is disabled while the datacenter accepts. That is the case it exists for.
+##   4. That the warning wording still matches the one shipped at guest level, so the two
+##      read the same way to an operator.
+##
+##
 ## TURN THE NODE FIREWALL ON - AND REFUSE TO DO IT BLIND.
 ##
 ## PUT /nodes/{node}/firewall/options with enable: 1.
@@ -52,7 +73,7 @@
 
     - name: FIREWALL - NODE - ENABLE - WHERE THE CHAIN STARTS DENYING
       set_fact:
-        _node_fw_first_deny_pos: >-
+        _node_fw_cover_api: >-
           {{ (((proxmox_call_rules.json.data | default([], true))
                 | selectattr('type', 'defined') | selectattr('type', 'equalto', 'in')
                 | selectattr('action', 'defined') | selectattr('action', 'in', ['DROP', 'REJECT'])
@@ -60,6 +81,36 @@
                 | rejectattr('enable', 'equalto', 0) | rejectattr('enable', 'equalto', '0')
                 | selectattr('pos', 'defined') | map(attribute='pos') | map('int') | list)
               + [99999]) | sort | first }}
+        ####
+        ## A DENY ONLY COUNTS IF IT CAN REACH THE PORT, AND THE NODE IS NOT ALONE.
+        ####
+        _node_fw_deny_all_pos: >-
+                {{ ((proxmox_call_rules.json.data | default([], true))
+                | selectattr('type', 'defined') | selectattr('type', 'equalto', 'in')
+                | selectattr('action', 'defined') | selectattr('action', 'in', ['DROP', 'REJECT'])
+                | selectattr('enable', 'defined')
+                | rejectattr('enable', 'equalto', 0) | rejectattr('enable', 'equalto', '0')
+                | selectattr('pos', 'defined') | map(attribute='pos') | map('int') | list) }}
+        _node_fw_deny_other_api_pos: >-
+                {{ ((proxmox_call_rules.json.data | default([], true))
+                | selectattr('type', 'defined') | selectattr('type', 'equalto', 'in')
+                | selectattr('action', 'defined') | selectattr('action', 'in', ['DROP', 'REJECT'])
+                | selectattr('enable', 'defined')
+                | rejectattr('enable', 'equalto', 0) | rejectattr('enable', 'equalto', '0')
+                | selectattr('dport', 'defined') | rejectattr('dport', 'none')
+                | selectattr('dport', 'match', '^[0-9]+$')
+                | rejectattr('dport', 'equalto', node_fw_api_port | default('8006') | string)
+                | selectattr('pos', 'defined') | map(attribute='pos') | map('int') | list) }}
+        _node_fw_deny_other_ssh_pos: >-
+                {{ ((proxmox_call_rules.json.data | default([], true))
+                | selectattr('type', 'defined') | selectattr('type', 'equalto', 'in')
+                | selectattr('action', 'defined') | selectattr('action', 'in', ['DROP', 'REJECT'])
+                | selectattr('enable', 'defined')
+                | rejectattr('enable', 'equalto', 0) | rejectattr('enable', 'equalto', '0')
+                | selectattr('dport', 'defined') | rejectattr('dport', 'none')
+                | selectattr('dport', 'match', '^[0-9]+$')
+                | rejectattr('dport', 'equalto', node_fw_ssh_port | default('22') | string)
+                | selectattr('pos', 'defined') | map(attribute='pos') | map('int') | list) }}
         _node_fw_api_first_pos: >-
           {{ (((proxmox_call_rules.json.data | default([], true))
                 | selectattr('type', 'defined') | selectattr('type', 'equalto', 'in')
@@ -86,10 +137,114 @@
     ## the task, so these two cannot read the three positions from the same one.
     ####
 
-    - name: FIREWALL - NODE - ENABLE - IS THERE A WAY BACK IN, AND IS IT ABOVE THE DENY
+    - name: FIREWALL - NODE - ENABLE - READ THE DATACENTER CHAIN TOO
+      uri:
+        url: "https://{{ proxmox_api_host }}/api2/json/cluster/firewall/rules"
+        method: GET
+        headers:
+          Authorization: "PVEAPIToken={{ proxmox_api_user }}!{{ proxmox_api_token_id }}={{ proxmox_api_token_secret }}"
+        validate_certs: "{{ proxmox_api_validate_certs | default(false) }}"
+      register: proxmox_call_dc_rules
+      failed_when: false
+
+    ####
+    ## A DATACENTER CHAIN WE CANNOT READ IS NOT A DATACENTER CHAIN THAT GRANTS NOTHING.
+    ##
+    ## This action is node level and this read reaches a /cluster path. The other actions of
+    ## this role read /cluster paths with the same token, so it should hold, but THIS call has
+    ## never run. If the token scope refuses it, the read fails.
+    ##
+    ## Without the guard above, that failure aborted the play : the action neither armed nor
+    ## explained. With it, the read simply yields nothing, and the distinction below matters :
+    ## an unreadable chain must NOT be treated as an empty one, because an empty chain is a
+    ## fact and an unreadable chain is an absence of fact. Falling back on it would be arming
+    ## on an assumption.
+    ##
+    ## So the fallback is used only when the chain was actually read. When it was not, and the
+    ## node chain says nothing about a port, the guard REFUSES and says which of the two it is.
+    ####
+
+    - name: FIREWALL - NODE - ENABLE - WAS THE DATACENTER CHAIN READABLE AT ALL
       set_fact:
-        _node_fw_has_api: "{{ (_node_fw_api_first_pos | int) < (_node_fw_first_deny_pos | int) }}"
-        _node_fw_has_ssh: "{{ (_node_fw_ssh_first_pos | int) < (_node_fw_first_deny_pos | int) }}"
+        _node_fw_dc_readable: >-
+          {{ ((proxmox_call_dc_rules.status | default(0) | int) == 200)
+          and ((proxmox_call_dc_rules.failed | default(false)) | bool == false) }}
+
+    - name: FIREWALL - NODE - ENABLE - WHAT THE DATACENTER CHAIN HOLDS
+      set_fact:
+        _node_fw_dc_api_pos: >-
+                {{ (((proxmox_call_dc_rules.json.data | default([], true))
+                | selectattr('type', 'defined') | selectattr('type', 'equalto', 'in')
+                | selectattr('action', 'defined') | selectattr('action', 'equalto', 'ACCEPT')
+                | selectattr('dport', 'defined')
+                | selectattr('dport', 'equalto', node_fw_api_port | default('8006') | string)
+                | selectattr('enable', 'defined')
+                | rejectattr('enable', 'equalto', 0) | rejectattr('enable', 'equalto', '0')
+                | selectattr('pos', 'defined') | map(attribute='pos') | map('int') | list)
+                + [99999]) | sort | first }}
+        _node_fw_dc_ssh_pos: >-
+                {{ (((proxmox_call_dc_rules.json.data | default([], true))
+                | selectattr('type', 'defined') | selectattr('type', 'equalto', 'in')
+                | selectattr('action', 'defined') | selectattr('action', 'equalto', 'ACCEPT')
+                | selectattr('dport', 'defined')
+                | selectattr('dport', 'equalto', node_fw_ssh_port | default('22') | string)
+                | selectattr('enable', 'defined')
+                | rejectattr('enable', 'equalto', 0) | rejectattr('enable', 'equalto', '0')
+                | selectattr('pos', 'defined') | map(attribute='pos') | map('int') | list)
+                + [99999]) | sort | first }}
+        _node_fw_dc_deny_all: >-
+                {{ ((proxmox_call_dc_rules.json.data | default([], true))
+                | selectattr('type', 'defined') | selectattr('type', 'equalto', 'in')
+                | selectattr('action', 'defined') | selectattr('action', 'in', ['DROP', 'REJECT'])
+                | selectattr('enable', 'defined')
+                | rejectattr('enable', 'equalto', 0) | rejectattr('enable', 'equalto', '0')
+                | selectattr('pos', 'defined') | map(attribute='pos') | map('int') | list) }}
+        _node_fw_dc_deny_other_api: >-
+                {{ ((proxmox_call_dc_rules.json.data | default([], true))
+                | selectattr('type', 'defined') | selectattr('type', 'equalto', 'in')
+                | selectattr('action', 'defined') | selectattr('action', 'in', ['DROP', 'REJECT'])
+                | selectattr('enable', 'defined')
+                | rejectattr('enable', 'equalto', 0) | rejectattr('enable', 'equalto', '0')
+                | selectattr('dport', 'defined') | rejectattr('dport', 'none')
+                | selectattr('dport', 'match', '^[0-9]+$')
+                | rejectattr('dport', 'equalto', node_fw_api_port | default('8006') | string)
+                | selectattr('pos', 'defined') | map(attribute='pos') | map('int') | list) }}
+        _node_fw_dc_deny_other_ssh: >-
+                {{ ((proxmox_call_dc_rules.json.data | default([], true))
+                | selectattr('type', 'defined') | selectattr('type', 'equalto', 'in')
+                | selectattr('action', 'defined') | selectattr('action', 'in', ['DROP', 'REJECT'])
+                | selectattr('enable', 'defined')
+                | rejectattr('enable', 'equalto', 0) | rejectattr('enable', 'equalto', '0')
+                | selectattr('dport', 'defined') | rejectattr('dport', 'none')
+                | selectattr('dport', 'match', '^[0-9]+$')
+                | rejectattr('dport', 'equalto', node_fw_ssh_port | default('22') | string)
+                | selectattr('pos', 'defined') | map(attribute='pos') | map('int') | list) }}
+
+    - name: FIREWALL - NODE - ENABLE - WHICH DENIES COVER THESE PORTS, AT EACH LEVEL
+      set_fact:
+        _node_fw_cover_api: "{{ ((_node_fw_deny_all_pos | difference(_node_fw_deny_other_api_pos)) + [99999]) | sort | first }}"
+        _node_fw_cover_ssh: "{{ ((_node_fw_deny_all_pos | difference(_node_fw_deny_other_ssh_pos)) + [99999]) | sort | first }}"
+        _node_fw_dc_cover_api: "{{ ((_node_fw_dc_deny_all | difference(_node_fw_dc_deny_other_api)) + [99999]) | sort | first }}"
+        _node_fw_dc_cover_ssh: "{{ ((_node_fw_dc_deny_all | difference(_node_fw_dc_deny_other_ssh)) + [99999]) | sort | first }}"
+
+    ####
+    ## THE NODE DECIDES THE PORTS IT SPEAKS ABOUT, THE DATACENTER DECIDES THE REST.
+    ## A node speaks about a port when it carries an active accept for it, a deny that covers
+    ## it, or both. Silent on both counts, it defers to the level below.
+    ####
+
+    - name: FIREWALL - NODE - ENABLE - IS THERE A WAY BACK IN, FROM EITHER LEVEL
+      set_fact:
+        _node_fw_has_api: >-
+          {{ ((_node_fw_api_first_pos | int) < (_node_fw_cover_api | int))
+          if (([_node_fw_api_first_pos | int, _node_fw_cover_api | int] | min) < 99999)
+          else (((_node_fw_dc_api_pos | int) < (_node_fw_dc_cover_api | int))
+                if (_node_fw_dc_readable | bool) else false) }}
+        _node_fw_has_ssh: >-
+          {{ ((_node_fw_ssh_first_pos | int) < (_node_fw_cover_ssh | int))
+          if (([_node_fw_ssh_first_pos | int, _node_fw_cover_ssh | int] | min) < 99999)
+          else (((_node_fw_dc_ssh_pos | int) < (_node_fw_dc_cover_ssh | int))
+                if (_node_fw_dc_readable | bool) else false) }}
 
     - name: FIREWALL - NODE - ENABLE - REFUSE TO ARM A NODE WITH NO WAY BACK IN
       ansible.builtin.assert:
@@ -97,14 +252,19 @@
           - _node_fw_has_api | bool
           - _node_fw_has_ssh | bool
         fail_msg: >-
+          {{ ('Refused. This node chain says nothing about the port(s) at stake, so the guard needed the '
+              ~ 'DATACENTER chain to decide - and that chain could NOT be read. An unreadable chain is not '
+              ~ 'an empty one : it is an absence of fact, and arming on it would be arming on an assumption. '
+              ~ 'Check that the api token may read /cluster/firewall/rules, then run this again. ')
+             if not (_node_fw_dc_readable | bool) else '' }}
           Refused. Turning the firewall on for node {{ proxmox_node }} would drop all inbound
           traffic on it, including the Proxmox web interface on port {{ node_fw_api_port | default('8006') }}
           and SSH on port {{ node_fw_ssh_port | default('22') }}. You would lose remote access
           to this node, and getting it back would need console access.
           What its rule chain says right now : the web interface port
-          {{ 'is not accepted by any active rule' if (_node_fw_api_first_pos | int) >= 99999 else ('is accepted at position ' ~ _node_fw_api_first_pos if _node_fw_has_api else 'is accepted at position ' ~ _node_fw_api_first_pos ~ ', but a blocking rule sits above it at position ' ~ _node_fw_first_deny_pos ~ ', so that accept never runs') }} ;
-          SSH {{ 'is not accepted by any active rule' if (_node_fw_ssh_first_pos | int) >= 99999 else ('is accepted at position ' ~ _node_fw_ssh_first_pos if _node_fw_has_ssh else 'is accepted at position ' ~ _node_fw_ssh_first_pos ~ ', but a blocking rule sits above it at position ' ~ _node_fw_first_deny_pos ~ ', so that accept never runs') }} ;
-          and {{ 'no rule blocks inbound traffic explicitly, but with no accepted path the default policy drops it anyway' if (_node_fw_first_deny_pos | int) >= 99999 else 'the first rule that blocks inbound traffic is at position ' ~ _node_fw_first_deny_pos }}.
+          {{ 'is not accepted by any active rule' if (_node_fw_api_first_pos | int) >= 99999 else ('is accepted at position ' ~ _node_fw_api_first_pos if _node_fw_has_api else 'is accepted at position ' ~ _node_fw_api_first_pos ~ ', but a blocking rule sits above it at position ' ~ _node_fw_cover_api ~ ', so that accept never runs') }} ;
+          SSH {{ 'is not accepted by any active rule' if (_node_fw_ssh_first_pos | int) >= 99999 else ('is accepted at position ' ~ _node_fw_ssh_first_pos if _node_fw_has_ssh else 'is accepted at position ' ~ _node_fw_ssh_first_pos ~ ', but a blocking rule sits above it at position ' ~ _node_fw_cover_api ~ ', so that accept never runs') }} ;
+          and {{ 'no rule blocks inbound traffic explicitly, but with no accepted path the default policy drops it anyway' if (_node_fw_cover_api | int) >= 99999 else 'the first rule that blocks inbound traffic is at position ' ~ _node_fw_cover_api }}.
           A rule that exists but is disabled does not count as accepted.
           To fix this, add the accepted paths first with the role action
           `firewall_node_enable_management_access`, then run this one again.
@@ -113,7 +273,7 @@
         success_msg: >-
           way back in confirmed on {{ proxmox_node }} :
           api at {{ _node_fw_api_first_pos }}, ssh at {{ _node_fw_ssh_first_pos }},
-          first deny at {{ _node_fw_first_deny_pos }} - arming the node firewall
+          first deny at {{ _node_fw_cover_api }} - arming the node firewall
 
     ####
     ####
