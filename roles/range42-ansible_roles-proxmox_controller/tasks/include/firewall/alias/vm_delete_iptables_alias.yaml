@@ -1,4 +1,12 @@
 ---
+##
+## DELETE ONE FIREWALL ALIAS ON A GUEST, BY NAME. Safe by construction : a name does not move
+## when a neighbour disappears, unlike a rule's position.
+##
+## The report advertised a cidr and a comment a delete never receives - and the comment under
+## `vm_fw_comment`, the RULE family's key. Both always vanished on omit, so dropping them
+## changes nothing observable. It now reports the name, like the dc sibling.
+##
 
 - block:
     ####
@@ -34,9 +42,7 @@
           proxmox_node: "{{ proxmox_node }}"
           vm_id: "{{ vm_id }}"
 
-          vm_fw_alias_cidr: "{{ vm_fw_alias_cidr | default(omit) }}"
           vm_fw_alias_name: "{{ vm_fw_alias_name | default(omit) }}"
-          vm_fw_comment: "{{ vm_fw_comment | default(omit) }}"
 
     - name: FIREWALL - VM - DELETE FW ALIAS - PRINT JSON
       debug:

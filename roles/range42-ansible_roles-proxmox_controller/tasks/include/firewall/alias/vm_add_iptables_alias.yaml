@@ -1,4 +1,12 @@
 ---
+##
+## ADD A FIREWALL ALIAS ON A GUEST.
+##
+## The report named `vm_fw_comment` - the RULE family's key, never set on this path - so
+## `default(omit)` fired and the comment vanished from the report while the alias was created
+## with it. Same defect as the guest reader carried until 2026-09-03. The dc sibling was right
+## all along : keep the two identical, the asymmetry is what hid it.
+##
 
 - block:
     ####
@@ -34,9 +42,9 @@
           proxmox_node: "{{ proxmox_node }}"
           vm_id: "{{ vm_id }}"
 
+          vm_fw_alias_name: "{{ vm_fw_alias_name | default(omit) }}"
           vm_fw_alias_cidr: "{{ vm_fw_alias_cidr | default(omit) }}"
-          vm_fw_alias_name: "{{ vm_fw_alias_name  |default(omit) }}"
-          vm_fw_comment: "{{ vm_fw_comment | default(omit) }}"
+          vm_fw_alias_comment: "{{ vm_fw_alias_comment | default(omit) }}"
 
     - name: FIREWALL - VM - ADD FW ALIAS - PRINT JSON
       debug:

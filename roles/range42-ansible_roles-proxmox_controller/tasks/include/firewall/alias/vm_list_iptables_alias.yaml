@@ -2,17 +2,14 @@
 ##
 ## LIST THE FIREWALL ALIASES DEFINED ON A GUEST.
 ##
-## The comment is read from the api's `comment` field, and published as
-## `vm_fw_alias_comment` - the name the sibling add and delete actions already use, and
-## the one both devkit normalisers already declare.
+## FOUR fields for four. It used to read `item.iface` - a field of a RULE, never of an alias -
+## into `vm_fw_comment`, which belongs to the rule family too, so `default(omit)` fired and the
+## key vanished. Now `comment`, under the name the sibling add and delete already use, plus
+## `ipversion`. The api's `digest` is NOT a fifth field : it locks the config section, and no
+## write accepts it. Fixed 2026-09-03.
 ##
-## It used to read `item.iface` into a key named `vm_fw_comment`, which was wrong twice.
-## `iface` is a field of a firewall RULE, never of an alias, so `default(omit)` always
-## fired and the key vanished in silence. And `vm_fw_comment` belongs to the rule family,
-## where the rule reader publishes it legitimately. Fixed 2026-09-03.
-##
-## Aliases exist at the datacenter and guest levels only. There is no node-level endpoint,
-## measured : `pvesh ls /nodes/<node>/firewall` returns log, options and rules.
+## Aliases exist at the datacenter and guest levels only - no node endpoint, measured :
+## `pvesh ls /nodes/<node>/firewall` returns log, options and rules.
 ##
 
 - block:
@@ -46,9 +43,10 @@
               'proxmox_node':   proxmox_node ,
               'vm_id':   vm_id ,
 
-              'vm_fw_alias_name':    ( item.name    | default(omit)),
-              'vm_fw_alias_cidr':    ( item.cidr    | default(omit)),
-              'vm_fw_alias_comment': ( item.comment | default(omit)),
+              'vm_fw_alias_name':      ( item.name      | default(omit)),
+              'vm_fw_alias_cidr':      ( item.cidr      | default(omit)),
+              'vm_fw_alias_comment':   ( item.comment   | default(omit)),
+              'vm_fw_alias_ipversion': ( item.ipversion | default(omit)),
             } ] }}
       loop: "{{ proxmox_call.json.data }}"
       loop_control:

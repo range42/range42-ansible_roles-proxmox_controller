@@ -2,10 +2,10 @@
 ##
 ## LIST THE FIREWALL ALIASES DEFINED AT THE DATACENTER LEVEL.
 ##
-## The comment is read from the api's `comment` field. The guest-level equivalent used to
-## read `item.iface` into a key named `vm_fw_comment`, which an alias never carries, so its
-## comment always came back empty. That was not copied here, and it is fixed since
-## 2026-09-03 : the guest reader now reads `comment` and publishes `vm_fw_alias_comment`.
+## FOUR fields for four : `comment` was always read here correctly, `ipversion` added
+## 2026-09-03. The api's `digest` is NOT a fifth field : it locks the config section, and no
+## write accepts it. The guest sibling read `item.iface` into a rule-family key until the same
+## day - keep the two readers identical, the asymmetry is what hid that defect.
 ##
 ## Aliases exist at the datacenter and guest levels only. There is no node-level endpoint.
 ##
@@ -39,9 +39,10 @@
               'source': "proxmox",
               'proxmox_node':   proxmox_node ,
 
-              'dc_fw_alias_name':    ( item.name    | default(omit)),
-              'dc_fw_alias_cidr':    ( item.cidr    | default(omit)),
-              'dc_fw_alias_comment': ( item.comment | default(omit)),
+              'dc_fw_alias_name':      ( item.name      | default(omit)),
+              'dc_fw_alias_cidr':      ( item.cidr      | default(omit)),
+              'dc_fw_alias_comment':   ( item.comment   | default(omit)),
+              'dc_fw_alias_ipversion': ( item.ipversion | default(omit)),
             } ] }}
       loop: "{{ proxmox_call.json.data }}"
       loop_control:
