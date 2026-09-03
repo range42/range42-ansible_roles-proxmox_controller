@@ -3,9 +3,18 @@
 ## LIST THE FIREWALL ALIASES DEFINED AT THE DATACENTER LEVEL.
 ##
 ## FOUR fields for four : `comment` was always read here correctly, `ipversion` added
-## 2026-09-03. The api's `digest` is NOT a fifth field : it locks the config section, and no
-## write accepts it. The guest sibling read `item.iface` into a rule-family key until the same
-## day - keep the two readers identical, the asymmetry is what hid that defect.
+## 2026-09-03. The guest sibling read `item.iface` into a rule-family key until the same day -
+## keep the two readers identical, the asymmetry is what hid that defect.
+##
+## `digest` is NOT a fifth field : `set` and `delete` DO accept it, as a concurrency token to
+## refuse a change if the config moved, but it is not a property of the alias and cannot be
+## chosen. And `ipversion` is DERIVED from the cidr, not writable - measured, `pvesh usage`
+## on the set method lists cidr, comment, digest and rename only. So a rewrite of the same
+## cidr regenerates it : withholding it was a REPORTING gap, never a preservation one.
+##
+## NO UPDATE AND NO RENAME ACTION EXISTS, though the api has both : `set` changes the cidr and
+## the comment in place, and `--rename` renames. Today a change means delete plus recreate,
+## which breaks every rule referencing the alias by name.
 ##
 ## Aliases exist at the datacenter and guest levels only. There is no node-level endpoint.
 ##

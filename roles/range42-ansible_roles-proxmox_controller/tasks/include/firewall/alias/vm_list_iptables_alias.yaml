@@ -5,8 +5,14 @@
 ## FOUR fields for four. It used to read `item.iface` - a field of a RULE, never of an alias -
 ## into `vm_fw_comment`, which belongs to the rule family too, so `default(omit)` fired and the
 ## key vanished. Now `comment`, under the name the sibling add and delete already use, plus
-## `ipversion`. The api's `digest` is NOT a fifth field : it locks the config section, and no
-## write accepts it. Fixed 2026-09-03.
+## `ipversion`. Fixed 2026-09-03.
+##
+## `digest` is NOT a fifth field : `set` and `delete` DO accept it, as a concurrency token to
+## refuse a change if the config moved, but it is not a property of the alias and cannot be
+## chosen. And `ipversion` is DERIVED from the cidr, not writable - measured, `pvesh usage`
+## on the set method lists cidr, comment, digest and rename only. So a rewrite of the same
+## cidr regenerates it : withholding it was a REPORTING gap, never a preservation one. That
+## is what separates an alias from a net line, where the withheld options were really lost.
 ##
 ## Aliases exist at the datacenter and guest levels only - no node endpoint, measured :
 ## `pvesh ls /nodes/<node>/firewall` returns log, options and rules.
