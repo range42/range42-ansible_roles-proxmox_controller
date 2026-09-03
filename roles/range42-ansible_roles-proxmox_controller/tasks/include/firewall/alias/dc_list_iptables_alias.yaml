@@ -2,9 +2,10 @@
 ##
 ## LIST THE FIREWALL ALIASES DEFINED AT THE DATACENTER LEVEL.
 ##
-## The comment is read from the api's `comment` field. The guest-level equivalent reads
-## `item.iface` into the same slot, which an alias never carries, so its comment always
-## comes back empty. Not copied here.
+## The comment is read from the api's `comment` field. The guest-level equivalent used to
+## read `item.iface` into a key named `vm_fw_comment`, which an alias never carries, so its
+## comment always came back empty. That was not copied here, and it is fixed since
+## 2026-09-03 : the guest reader now reads `comment` and publishes `vm_fw_alias_comment`.
 ##
 ## Aliases exist at the datacenter and guest levels only. There is no node-level endpoint.
 ##
