@@ -181,7 +181,10 @@
           proxmox_node: "{{ proxmox_node }}"
           #
           vm_id: "{{ vm_id | int }}"
-          vm_name: "{{ vm_name }}"
+          ## Defended : the devkit wrapper resolves the name before calling, a bundle
+          ## calling this action through include_role does not. Undefended, the JSON build
+          ## fails AFTER the switch was written - armed guest, failed report.
+          vm_name: "{{ vm_name | default('') }}"
           vm_firewall: "enabled"
 
           rules_total_before: "{{ _fw_rules_total }}"
