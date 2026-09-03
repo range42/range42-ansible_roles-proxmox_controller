@@ -201,6 +201,14 @@
   ansible.builtin.include_tasks: "./include/firewall/vm_disable.yaml"
   when: proxmox_vm_action == "firewall_vm_disable"
 
+- name: INCLUDE - ./include/firewall/vm_iface_enable.yaml
+  ansible.builtin.include_tasks: "./include/firewall/vm_iface_enable.yaml"
+  when: proxmox_vm_action == "firewall_vm_iface_enable"
+
+- name: INCLUDE - ./include/firewall/vm_iface_disable.yaml
+  ansible.builtin.include_tasks: "./include/firewall/vm_iface_disable.yaml"
+  when: proxmox_vm_action == "firewall_vm_iface_disable"
+
 ####
 
 - name: INCLUDE - ./include/firewall/vm_apply_iptables_rule.yaml

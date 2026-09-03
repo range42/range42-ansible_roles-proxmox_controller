@@ -1,0 +1,224 @@
+---
+##
+## TURN THE FIREWALL FLAG ON, ON ONE NETWORK CARD OF ONE GUEST.
+##
+## GET then POST /nodes/{node}/qemu/{vmid}/config, on the net<N> option.
+##
+## >>> THE CARD IS THE FOURTH SWITCH, AND WITHOUT IT NOTHING FILTERS <<<
+## Measured : a guest is filtered only when the datacenter switch, the guest switch AND this
+## per-card flag are all three set. Any one of them off and not a single packet is filtered,
+## whatever the other two say. So this action is not an accessory of firewall_vm_enable, it is
+## one of its three necessary conditions.
+##
+## >>> THE SAME FLAG ALSO CARRIES PVE'S MAC ANTI-SPOOF, AND THEY CANNOT BE SEPARATED <<<
+## Measured from a root shell inside a guest : with the flag set, the guest becomes unreachable
+## the moment it changes its MAC ; with the flag absent it stays reachable ON THE FAKE ADDRESS.
+## Setting this flag is the only thing that neutralises MAC spoofing - there is no second switch.
+## So turning it on hardens the card twice over, and turning it off hands MAC spoofing back.
+## In a cyber range that second half is sometimes the point : a MITM exercise needs a guest able
+## to lie about its MAC. What cannot be had is both - one flag, two features.
+##
+## >>> IT EDITS THE STRING IT READ, IT NEVER REBUILDS ONE <<<
+## Writing net<N> replaces the WHOLE option, all keys at once. A caller that rebuilt the string
+## from parsed fields would silently drop everything it did not know about - the MAC, the VLAN
+## tag, the MTU, the queues, the rate, and any key a future PVE version adds. So this action
+## reads the raw string, removes only the firewall key, appends the wanted one, and leaves every
+## other character untouched. The prototype of this edit ran dozens of times during the
+## measurement campaign without once losing a setting.
+##
+## >>> IT READS BACK TWICE, AND THAT IS THE WHOLE SAFETY <<<
+## Once on the STORED config, to prove the write landed and nothing else moved. Once on the
+## CURRENT config, the values the running guest actually has, because a change that PVE deferred
+## to the next reboot would show up in the stored config and filter nothing - an arming that
+## reports success and does not filter is exactly the trap this family of actions exists to
+## close. The two must agree.
+##
+## The MAC is compared explicitly, and not only through the whole-string comparison, because it
+## is the one key whose loss is silent on the Proxmox side and fatal inside the guest : the
+## netplan cloud-init writes carries a match on macaddress, so a new MAC makes the guest lose
+## its network while the api still reports a healthy card. It cost two guests the 2026-08-31.
+##
+## Required : proxmox_node, vm_id, vm_vmnet_id.
+##
+
+- block:
+    ####
+    ####
+
+    - name: FIREWALL - VM - IFACE ENABLE - READ THE CARD, RAW
+      uri:
+        url: "https://{{ proxmox_api_host }}/api2/json/nodes/{{ proxmox_node }}/qemu/{{ vm_id }}/config"
+        method: GET
+        headers:
+          Authorization: "PVEAPIToken={{ proxmox_api_user }}!{{ proxmox_api_token_id }}={{ proxmox_api_token_secret }}"
+        validate_certs: "{{ proxmox_api_validate_certs | default(false) }}"
+      register: proxmox_call_cfg_before
+
+    - name: FIREWALL - VM - IFACE ENABLE - THE STRING WE START FROM
+      set_fact:
+        _vm_ifen_key: "net{{ vm_vmnet_id }}"
+        _vm_ifen_before: "{{ proxmox_call_cfg_before.json.data['net' + (vm_vmnet_id | string)] | default('') }}"
+
+    ## Refused before anything is written. A card that is not there cannot be armed, and a card
+    ## whose string we cannot read is one we would rewrite blind.
+    - name: FIREWALL - VM - IFACE ENABLE - REFUSE TO ARM A CARD THAT IS NOT THERE
+      ansible.builtin.assert:
+        that:
+          - (_vm_ifen_before | length) > 0
+        fail_msg: >-
+          vm {{ vm_id }} has no card {{ _vm_ifen_key }}, or its configuration could not be read.
+          NOTHING was changed. Cards it really has :
+          {{ proxmox_call_cfg_before.json.data | default({}) | dict2items
+             | selectattr('key', 'match', '^net[0-9]+$') | map(attribute='key') | list }}.
+        success_msg: >-
+          {{ _vm_ifen_key }} reads : {{ _vm_ifen_before }}
+
+    ####
+    ## THE EDIT. Three substitutions and one append, on the string itself.
+    ##
+    ## The key can sit anywhere in the option, so all three positions are handled : in the
+    ## middle, at the very start, and alone. `firewall=[^,]*` and not `firewall=[01]` on
+    ## purpose - a value we do not recognise must be removed too, not left behind to be read
+    ## by PVE alongside the one we append.
+    ####
+    - name: FIREWALL - VM - IFACE ENABLE - STRIP ANY FIREWALL KEY, THEN SET IT TO ONE
+      set_fact:
+        _vm_ifen_stripped: >-
+          {{ _vm_ifen_before
+             | regex_replace(',firewall=[^,]*', '')
+             | regex_replace('^firewall=[^,]*,', '')
+             | regex_replace('^firewall=[^,]*$', '') }}
+
+    - name: FIREWALL - VM - IFACE ENABLE - THE STRING WE INTEND TO WRITE
+      set_fact:
+        _vm_ifen_wanted: "{{ _vm_ifen_stripped }},firewall=1"
+        _vm_ifen_was_on: "{{ 'firewall=1' in _vm_ifen_before }}"
+
+    - name: FIREWALL - VM - IFACE ENABLE - ALREADY ON, NOTHING TO WRITE
+      ansible.builtin.debug:
+        msg: >-
+          {{ _vm_ifen_key }} of vm {{ vm_id }} already carries firewall=1 - skipped, the card was
+          not rewritten and its MAC is untouched.
+      when: _vm_ifen_was_on | bool
+
+    - name: FIREWALL - VM - IFACE ENABLE - WRITE THE CARD
+      uri:
+        url: "https://{{ proxmox_api_host }}/api2/json/nodes/{{ proxmox_node }}/qemu/{{ vm_id }}/config"
+        method: POST
+        headers:
+          Authorization: "PVEAPIToken={{ proxmox_api_user }}!{{ proxmox_api_token_id }}={{ proxmox_api_token_secret }}"
+        validate_certs: "{{ proxmox_api_validate_certs | default(false) }}"
+        body_format: json
+        body: >-
+          {{ { _vm_ifen_key: _vm_ifen_wanted } }}
+      register: proxmox_call
+      when: not (_vm_ifen_was_on | bool)
+
+    ####
+    ## THE READ-BACK, TWICE. See the header : the stored config proves the write landed, the
+    ## current config proves the running guest actually has it.
+    ####
+    - name: FIREWALL - VM - IFACE ENABLE - READ THE STORED CARD BACK
+      uri:
+        url: "https://{{ proxmox_api_host }}/api2/json/nodes/{{ proxmox_node }}/qemu/{{ vm_id }}/config"
+        method: GET
+        headers:
+          Authorization: "PVEAPIToken={{ proxmox_api_user }}!{{ proxmox_api_token_id }}={{ proxmox_api_token_secret }}"
+        validate_certs: "{{ proxmox_api_validate_certs | default(false) }}"
+      register: proxmox_call_cfg_after
+
+    - name: FIREWALL - VM - IFACE ENABLE - READ THE CARD THE RUNNING GUEST HAS
+      uri:
+        url: "https://{{ proxmox_api_host }}/api2/json/nodes/{{ proxmox_node }}/qemu/{{ vm_id }}/config?current=1"
+        method: GET
+        headers:
+          Authorization: "PVEAPIToken={{ proxmox_api_user }}!{{ proxmox_api_token_id }}={{ proxmox_api_token_secret }}"
+        validate_certs: "{{ proxmox_api_validate_certs | default(false) }}"
+      register: proxmox_call_cfg_current
+      failed_when: false
+
+    - name: FIREWALL - VM - IFACE ENABLE - WHAT THE THREE READINGS SAY
+      set_fact:
+        _vm_ifen_after: "{{ proxmox_call_cfg_after.json.data['net' + (vm_vmnet_id | string)] | default('') }}"
+        _vm_ifen_current: "{{ (proxmox_call_cfg_current.json.data | default({}))['net' + (vm_vmnet_id | string)] | default('') }}"
+        _vm_ifen_mac_before: "{{ _vm_ifen_before | regex_search('([0-9A-Fa-f]{2}:){5}[0-9A-Fa-f]{2}') | default('', true) }}"
+
+    - name: FIREWALL - VM - IFACE ENABLE - THE VERDICT, ON THE STRINGS THEMSELVES
+      set_fact:
+        _vm_ifen_mac_after: "{{ _vm_ifen_after | regex_search('([0-9A-Fa-f]{2}:){5}[0-9A-Fa-f]{2}') | default('', true) }}"
+        _vm_ifen_is_on: "{{ 'firewall=1' in _vm_ifen_after }}"
+        _vm_ifen_lost_keys: >-
+          {{ (_vm_ifen_before | regex_replace(',?firewall=[^,]*', '') | split(','))
+             | reject('equalto', '')
+             | difference((_vm_ifen_after | regex_replace(',?firewall=[^,]*', '') | split(',')) | reject('equalto', '') | list)
+             | list }}
+        _vm_ifen_current_agrees: >-
+          {{ (_vm_ifen_current | length) == 0 or ('firewall=1' in _vm_ifen_current) }}
+
+    ## Four questions, four failure modes, and each names what it saw. Nothing here is inferred
+    ## from a return code : the strings are compared, before against after.
+    - name: FIREWALL - VM - IFACE ENABLE - REFUSE TO REPORT A SUCCESS THAT IS NOT ONE
+      ansible.builtin.assert:
+        that:
+          - _vm_ifen_is_on | bool
+          - (_vm_ifen_mac_before | length) == 0 or (_vm_ifen_mac_after == _vm_ifen_mac_before)
+          - ((_vm_ifen_lost_keys | default([])) | length) == 0
+          - _vm_ifen_current_agrees | bool
+        fail_msg: >-
+          the card was rewritten and the result is NOT what was intended.
+          before  : {{ _vm_ifen_before }}
+          intended: {{ _vm_ifen_wanted }}
+          stored  : {{ _vm_ifen_after }}
+          running : {{ _vm_ifen_current | default('not read') }}
+          {{ 'The firewall flag is NOT set on the stored card.'
+             if not (_vm_ifen_is_on | bool) else '' }}
+          {{ 'THE MAC CHANGED, from ' ~ _vm_ifen_mac_before ~ ' to ' ~ _vm_ifen_mac_after ~
+                '. The guest has very likely lost its network : cloud-init writes a netplan that
+                 matches on macaddress, and nothing on the Proxmox side shows it. Put the old MAC
+                 back on this card and reboot the guest.'
+             if ((_vm_ifen_mac_before | length) > 0 and _vm_ifen_mac_after != _vm_ifen_mac_before) else '' }}
+          {{ 'SETTINGS WERE LOST by the write : ' ~ (_vm_ifen_lost_keys | join(', ')) ~
+                '. Writing net<N> replaces the whole option, so anything absent from what was
+                 sent is gone. Put them back explicitly.'
+             if ((_vm_ifen_lost_keys | default([])) | length) > 0 else '' }}
+          {{ 'The STORED card carries the flag but the RUNNING guest does not : PVE deferred the
+              change. Nothing is filtered until the guest is rebooted, so do not treat this as
+              armed.'
+             if not (_vm_ifen_current_agrees | bool) else '' }}
+        success_msg: >-
+          {{ _vm_ifen_key }} of vm {{ vm_id }} carries firewall=1
+          {{ '(already did, nothing was written)' if (_vm_ifen_was_on | bool) else '' }},
+          MAC {{ _vm_ifen_mac_after | default('none', true) }} unchanged, no setting lost,
+          and the running guest agrees
+
+    ####
+    ####
+
+    - name: FIREWALL - VM - IFACE ENABLE - BUILD JSON
+      set_fact:
+        firewall_vm_iface_enable:
+          action: "firewall_vm_iface_enable"
+          source: "proxmox"
+          proxmox_node: "{{ proxmox_node }}"
+          #
+          vm_id: "{{ vm_id }}"
+          vm_name: "{{ vm_name | default('') }}"
+          vm_vmnet_id: "{{ vm_vmnet_id }}"
+          vm_network_device: "{{ _vm_ifen_key }}"
+          vm_network_mac: "{{ _vm_ifen_mac_after | default('', true) }}"
+          #
+          iface_firewall_before: "{{ '1' if (_vm_ifen_was_on | bool) else '0' }}"
+          iface_firewall_after: "{{ '1' if (_vm_ifen_is_on | bool) else '0' }}"
+          already_present: "{{ _vm_ifen_was_on | bool }}"
+          #
+          net_before: "{{ _vm_ifen_before }}"
+          net_after: "{{ _vm_ifen_after }}"
+
+    - name: FIREWALL - VM - IFACE ENABLE - PRINT JSON
+      debug:
+        var: firewall_vm_iface_enable
+
+  ####
+  ####
+
+  when: proxmox_vm_action == "firewall_vm_iface_enable"
