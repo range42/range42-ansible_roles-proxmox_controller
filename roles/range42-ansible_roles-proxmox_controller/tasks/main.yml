@@ -245,6 +245,10 @@
   ansible.builtin.include_tasks: "./include/firewall/vm_enable_default_ssh_rules.yaml"
   when: proxmox_vm_action == "firewall_vm_enable_default_ssh_rules"
 
+- name: INCLUDE - ./include/firewall/vm_declare_iptables_port.yaml
+  ansible.builtin.include_tasks: "./include/firewall/vm_declare_iptables_port.yaml"
+  when: proxmox_vm_action == "firewall_vm_declare_iptables_port"
+
 #### #### #### #### #### #### #### #### #### #### #### #### #### #### #### ####
 #### #### #### #### #### #### #### #### #### #### #### #### #### #### #### ####
 #### #### #### #### #### #### #### #### #### #### #### #### #### #### #### ####
