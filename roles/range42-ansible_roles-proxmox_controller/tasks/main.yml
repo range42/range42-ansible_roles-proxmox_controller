@@ -182,6 +182,10 @@
   ansible.builtin.include_tasks: "./include/firewall/node_list_options.yaml"
   when: proxmox_vm_action == "firewall_node_list_options"
 
+- name: INCLUDE - ./include/firewall/node_list_log.yaml
+  ansible.builtin.include_tasks: "./include/firewall/node_list_log.yaml"
+  when: proxmox_vm_action == "firewall_node_list_log"
+
 - name: INCLUDE - ./include/firewall/node_delete_iptables_rule.yaml
   ansible.builtin.include_tasks: "./include/firewall/node_delete_iptables_rule.yaml"
   when: proxmox_vm_action == "firewall_node_delete_iptables_rule"
@@ -222,6 +226,10 @@
 - name: INCLUDE - ./include/firewall/vm_list_options.yaml
   ansible.builtin.include_tasks: "./include/firewall/vm_list_options.yaml"
   when: proxmox_vm_action == "firewall_vm_list_options"
+
+- name: INCLUDE - ./include/firewall/vm_list_log.yaml
+  ansible.builtin.include_tasks: "./include/firewall/vm_list_log.yaml"
+  when: proxmox_vm_action == "firewall_vm_list_log"
 
 - name: INCLUDE - ./include/firewall/firewall_vm_list_iptables_alias.yaml
   ansible.builtin.include_tasks: "./include/firewall/alias/vm_list_iptables_alias.yaml"
