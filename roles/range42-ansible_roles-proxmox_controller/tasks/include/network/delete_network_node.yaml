@@ -4,7 +4,7 @@
     ####
     ####
 
-    - name: NETWORK - NODE - LIST NETWORK INTERFACES
+    - name: NETWORK - NODE - DELETE NETWORK INTERFACE
       uri:
         url: "https://{{ proxmox_api_host }}/api2/json/nodes/{{ proxmox_node }}/network/{{ iface_name }}"
         method: DELETE
@@ -12,13 +12,6 @@
           Authorization: "PVEAPIToken={{ proxmox_api_user }}!{{ proxmox_api_token_id }}={{ proxmox_api_token_secret }}"
         validate_certs: "{{ proxmox_api_validate_certs | default(false) }}"
       register: proxmox_call
-
-    ####
-    ####
-
-    - name: NETWORK - NODE - LIST NETWORK INTERFACES - proxmox_call_list_network_int_node
-      debug:
-        var: proxmox_call
 
     ####
     ####
@@ -34,7 +27,7 @@
           source: "proxmox"
           proxmox_node: "{{ proxmox_node }}"
           #
-          iface_name: "{{ iface_name }} "
+          iface_name: "{{ iface_name }}"
 
     - name: NETWORK - NODE - DELETE NETWORK INTERFACE - PRINT JSON
       debug:

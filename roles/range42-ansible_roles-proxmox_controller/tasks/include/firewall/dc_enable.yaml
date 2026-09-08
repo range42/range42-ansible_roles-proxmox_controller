@@ -1,9 +1,6 @@
 ---
 ##
-## >>> NOT LOADED. THIS FILE IS A DRAFT, THE ROLE NEVER READS IT. <<<
-## The role includes its action files by explicit path, so this suffix is inert.
-##
-## WHAT THIS DRAFT ADDS. This guard reads only the datacenter chain, and that chain does not
+## WHAT THIS GUARD ADDS. This guard reads only the datacenter chain, and that chain does not
 ## decide alone. Measured : an active deny in a NODE chain sits ahead of the datacenter accepts
 ## and wins, so a node that denies a management port shadows the accepts this guard checks and
 ## it would permit an arming that cuts access. The draft enumerates the cluster nodes, reads
@@ -13,7 +10,8 @@
 ## at all, so its rules apply to nothing. Counting a disarmed node would refuse on a state that
 ## works. A node armed later is caught by its own guard, which reads its own chain first.
 ##
-## WHAT MUST BE RE-VERIFIED BEFORE THIS IS COMMITTED, once the four earlier commits have run :
+## KNOWN LIMITATIONS - this file IS dispatched (an older header claimed draft, wrongly) and
+## it ships without these proofs :
 ##   1. The covering deny predicate, if the field test changed it, must be changed here too.
 ##   2. That GET /nodes returns what this expects, a list of objects carrying `node`. It has
 ##      never been called by this role. If it returns something else, the loop below is wrong.
@@ -43,10 +41,11 @@
 ##
 ## >>> THE PREDICATE BELOW EXISTS FOUR TIMES <<<
 ## Here, in node_enable.yaml, in node_enable_management_access.yaml and in
-## dc_enable_management_access.yaml. The role holds self-contained action files and uses
-## include_tasks nowhere across its 78 actions ; sharing this would break that convention to
-## save ten lines. The duplication is therefore deliberate, and the four copies are checked
-## identical at delivery rather than left to discipline.
+## dc_enable_management_access.yaml. The role holds self-contained action files - the
+## dispatch includes each one, but no action file includes another ; sharing this would break
+## that convention to save ten lines. The duplication is therefore deliberate, and every
+## copy across the guard actions must stay aligned - checked at delivery, not left to
+## discipline.
 ##
 ## No escape hatch is provided. A flag that skips a lockout guard is how lockout guards die.
 ##

@@ -8,8 +8,6 @@
     ####
 
     - name: VM - GET CONFIG CPU
-      vars:
-        proxmox_vmid: 100 # TODO - OVERWRITED_ARGUMENTS
 
       uri:
         url: "https://{{ proxmox_api_host }}/api2/json/nodes/{{ proxmox_node }}/qemu/{{ vm_id }}/config"

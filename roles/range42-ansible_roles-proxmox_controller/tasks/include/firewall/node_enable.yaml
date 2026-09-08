@@ -1,16 +1,13 @@
 ---
 ##
-## >>> NOT LOADED. THIS FILE IS A DRAFT, THE ROLE NEVER READS IT. <<<
-## The role includes its action files by explicit path, so this suffix is inert.
-##
-## WHAT THIS DRAFT ADDS, and why it is not committed yet.
+## WHAT THIS GUARD ADDS.
 ## It teaches this guard to read the DATACENTER chain as well as its own. Measured : the node
 ## chain is evaluated BEFORE the datacenter chain in a single chain, first match wins, so a
 ## port the node says nothing about is decided by the datacenter. Refusing on a bare node
 ## chain is therefore a FALSE refusal.
 ##
-## WHAT MUST BE RE-VERIFIED BEFORE THIS IS COMMITTED, once the four earlier commits have run
-## against a live node :
+## KNOWN LIMITATIONS - this file IS dispatched (an older header claimed draft, wrongly) and
+## it ships without these proofs :
 ##   1. That the covering deny predicate held in the field. It is the same one, copied here.
 ##      If the field test changed it, change it here too, in _node_fw_deny_other_* below.
 ##   2. That reading the datacenter chain from a node level action does not break the token
@@ -39,12 +36,11 @@
 ## those two rules in place is `firewall_node_enable_management_access`, and it is meant
 ## to run first, not after.
 ##
-## >>> THE PREDICATE BELOW EXISTS TWICE, ON PURPOSE AND AT A COST <<<
-## It is also in node_enable_management_access.yaml. The role holds 76 actions, each one
-## a self-contained file, and it uses include_tasks exactly zero times - sharing this
-## through an include would introduce a pattern the role does not have. The price is that
-## THE TWO COPIES MUST STAY IN SYNC : any change to what "well placed" means has to land
-## in both files. Nowhere else reads it.
+## >>> THE PREDICATE BELOW IS DUPLICATED ACROSS THE GUARD ACTIONS, ON PURPOSE AND AT A COST <<<
+## The role holds self-contained action files - no action file includes another - and sharing
+## this through an include would introduce a pattern the role does not have. The price is that
+## EVERY COPY MUST STAY IN SYNC : any change to what "well placed" means has to land in every
+## guard that carries it.
 ##
 ## No escape hatch is provided. A flag that skips a lockout guard is how lockout guards
 ## die ; if one is ever needed, it is a decision to take and to write down, not a default.
@@ -263,7 +259,7 @@
           to this node, and getting it back would need console access.
           What its rule chain says right now : the web interface port
           {{ 'is not accepted by any active rule' if (_node_fw_api_first_pos | int) >= 99999 else ('is accepted at position ' ~ _node_fw_api_first_pos if _node_fw_has_api else 'is accepted at position ' ~ _node_fw_api_first_pos ~ ', but a blocking rule sits above it at position ' ~ _node_fw_cover_api ~ ', so that accept never runs') }} ;
-          SSH {{ 'is not accepted by any active rule' if (_node_fw_ssh_first_pos | int) >= 99999 else ('is accepted at position ' ~ _node_fw_ssh_first_pos if _node_fw_has_ssh else 'is accepted at position ' ~ _node_fw_ssh_first_pos ~ ', but a blocking rule sits above it at position ' ~ _node_fw_cover_api ~ ', so that accept never runs') }} ;
+          SSH {{ 'is not accepted by any active rule' if (_node_fw_ssh_first_pos | int) >= 99999 else ('is accepted at position ' ~ _node_fw_ssh_first_pos if _node_fw_has_ssh else 'is accepted at position ' ~ _node_fw_ssh_first_pos ~ ', but a blocking rule sits above it at position ' ~ _node_fw_cover_ssh ~ ', so that accept never runs') }} ;
           and {{ 'no rule blocks inbound traffic explicitly, but with no accepted path the default policy drops it anyway' if (_node_fw_cover_api | int) >= 99999 else 'the first rule that blocks inbound traffic is at position ' ~ _node_fw_cover_api }}.
           A rule that exists but is disabled does not count as accepted.
           To fix this, add the accepted paths first with the role action
@@ -273,7 +269,7 @@
         success_msg: >-
           way back in confirmed on {{ proxmox_node }} :
           api at {{ _node_fw_api_first_pos }}, ssh at {{ _node_fw_ssh_first_pos }},
-          first deny at {{ _node_fw_cover_api }} - arming the node firewall
+          first covering deny : api {{ _node_fw_cover_api }}, ssh {{ _node_fw_cover_ssh }} - arming the node firewall
 
     ####
     ####

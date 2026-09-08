@@ -32,11 +32,10 @@
 ## Reading the chain first makes the action idempotent. Posting blindly appends another
 ## pair on every run.
 ##
-## >>> THE PREDICATE BELOW EXISTS THREE TIMES <<<
-## Here, in node_enable_management_access.yaml, and in node_enable.yaml. The role holds
-## self-contained action files and uses no task includes at all, so sharing it would
-## introduce a pattern the role does not have. The price is that the three copies MUST stay
-## identical, and that is checked at delivery rather than left to discipline.
+## >>> THE PREDICATE BELOW IS DUPLICATED ACROSS THE GUARD ACTIONS <<<
+## The role holds self-contained action files - no action file includes another - so sharing
+## it would introduce a pattern the role does not have. The price is that every copy MUST
+## stay identical, and that is checked at delivery rather than left to discipline.
 ##
 
 ##

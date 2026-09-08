@@ -7,8 +7,8 @@
 ## >>> THIS ACTION WAS DEAD <<<
 ## The block used to guard on "firewall_vm_enable" while the dispatch includes this file
 ## for "firewall_vm_enable_default_ssh_rules". Both conditions can never hold at once, so
-## the block was always skipped and the action had no caller anywhere. An audit of the 72
-## active dispatch entries found this to be the only such contradiction in the role.
+## the block was always skipped and the action had no caller anywhere. An audit of every
+## dispatch entry found this to be the only such contradiction in the role.
 ##
 ## >>> RULE ORDER IS THE WHOLE SAFETY OF THIS ACTION <<<
 ## The Proxmox firewall evaluates rules in order. An ACCEPT on 22 below a DROP on all
@@ -222,14 +222,6 @@
 
 
     ####
-    ####
-    ## The drop SECOND, immediately below it.
-    ####
-
-    ####
-    ####
-
-    ####
     ## `pos_requested` IS WHAT THE CALLER ASKED. `pos_after` IS WHERE THE RULE IS.
     ##
     ## They differ, and that is the point of publishing both : the api ignores the requested
@@ -240,7 +232,7 @@
     ####
     ## ONE OBJECT PER RULE, NOT ONE OBJECT PER CALL.
     ##
-    ## This action manages TWO rules and used to report them flattened into two field
+    ## This action used to manage TWO rules, and reported them flattened into two field
     ## families inside a single object. That breaks the devkit contract, where every reading
     ## is one json object per line and callers compose on that. Flattened, asking "what did
     ## you actually post" meant knowing both prefixes by heart.

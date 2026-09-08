@@ -57,37 +57,7 @@
 
       when: proxmox_vm_action == "network_list_interfaces_node"
 
-    # - name: NETWORK - BUILD JSON WITH INTERFACES
-    #   set_fact:
-    #     network_list_interfaces_node: >-
-    #       {{ (network_list_interfaces_node | default([])) + [
-    #         {
-    #           'action':                 "network_list_interfaces_node",
-    #           'source':                 "proxmox",
-    #           'proxmox_node':           proxmox_node,
-
-    #           'iface':                  item.get('iface'  ),
-    #           'iface_active':           item.get('active'   ),
-    #           'iface_exists':           item.get('exists'),
-    #           'iface_type':             item.get('type'      ),
-    #           'iface_autostart':        item.get('autostart'   ),
-    #           'iface_bridge_fd':        item.get('bridge_fd'   ),
-    #           'iface_bridge_ports':     item.get('bridge_ports'   ),
-    #           'iface_bridge_stp':       item.get('bridge_stp'   ),
-    #           'iface_priority':         item.get('priority'),
-    #           'ip_settings_method':     item.get('method'   ),
-    #           'ip_settings_method6':    item.get('method6'   ),
-    #           'ip_settings_address':    item.get('address'   ),
-    #           'ip_settings_cidr':       item.get('cidr'   ),
-    #           'ip_settings_gateway':    item.get('gateway'   ),
-    #           'ip_settings_netmask':    item.get('netmask'   ),
-    #         }
-    #       ] }}  dict2items  | rejectattr('value','equalto',None)
-    #   loop: "{{ proxmox_call.json.data }}"
-    #   loop_control:
-    #     label: "{{ item.iface }}"
-
-    - name: SNAPSHOT VM - LIST SNAPSHOT - PRINT JSON
+    - name: NETWORK - NODE - LIST NETWORK INTERFACES - PRINT JSON
       debug:
         var: network_list_interfaces_node
 

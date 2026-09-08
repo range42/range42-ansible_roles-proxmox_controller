@@ -32,7 +32,7 @@
           vm_id: "{{ vm_id }}"
           vm_vmnet_id: "{{ vm_vmnet_id }}"
 
-    - name: SNAPSHOT VM - DELETE SNAPSHOT - PRINT JSON
+    - name: NETWORK - VM - DELETE NETWORK INTERFACES - PRINT JSON
       debug:
         var: network_delete_interfaces_vm
 

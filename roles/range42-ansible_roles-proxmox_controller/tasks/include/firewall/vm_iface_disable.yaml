@@ -17,8 +17,8 @@
 ##
 ## In a cyber range that is sometimes exactly what is wanted - a MITM or ARP-spoofing exercise
 ## needs it, and a range that forbids it cannot teach it. THIS ACTION IS THE ONLY WAY TO ASK FOR
-## IT : the guest-level enable sets this flag automatically, so an administrator who wants a
-## spoofable card calls this one directly. What cannot be had is both - one flag, two features,
+## IT : the flag is SET by firewall_vm_iface_enable - the guest-level enable does NOT touch
+## the card, measured - so an administrator who wants a spoofable card calls this one directly. What cannot be had is both - one flag, two features,
 ## so a card is either filtered or free to spoof, never both.
 ##
 ## >>> IT EDITS THE STRING IT READ, IT NEVER REBUILDS ONE <<<
@@ -94,7 +94,7 @@
         _vm_ifdi_wanted: "{{ _vm_ifdi_stripped }},firewall=0"
         _vm_ifdi_was_off: "{{ 'firewall=0' in _vm_ifdi_before }}"
 
-    - name: FIREWALL - VM - IFACE DISABLE - ALREADY ON, NOTHING TO WRITE
+    - name: FIREWALL - VM - IFACE DISABLE - ALREADY OFF, NOTHING TO WRITE
       ansible.builtin.debug:
         msg: >-
           {{ _vm_ifdi_key }} of vm {{ vm_id }} already carries firewall=0 - skipped, the card was

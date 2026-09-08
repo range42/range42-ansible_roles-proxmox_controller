@@ -69,7 +69,7 @@
           # vm_id: "{{ vm_id | int }}"
           #
           iface_name: "{{                  iface_name             | default(omit) }}"
-          iface_type: "{{                  tiface_typeype             | default(omit) }}"
+          iface_type: "{{                  iface_type             | default(omit) }}"
           iface_autostart: "{{             iface_autostart        | default(omit) }}"
           iface_mtu: "{{                   iface_mtu              | default(omit) }}"
           iface_vlan_id: "{{               iface_vlan_id         | default(omit) }}"

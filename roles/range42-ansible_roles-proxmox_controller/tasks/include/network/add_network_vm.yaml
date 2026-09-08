@@ -49,14 +49,14 @@
           proxmox_node: "{{ proxmox_node }}"
           vm_id: "{{ vm_id | int }}"
           #
-          iface_firewall: "{{ firewall | default(omit)  }}"
-          iface_link_down: "{{ link_down | default(omit) }}"
-          iface_macaddr: "{{ macaddr | default(omit)  }}"
-          iface_mtu: "{{ mtu | default(omit)  }}"
-          iface_queues: "{{ queues | default(omit)  }}"
-          iface_rate: "{{ rate | default(omit)  }}"
-          iface_tag: "{{ tag | default(omit)  }}"
-          iface_trunks: "{{ trunks | default(omit)  }}"
+          iface_firewall: "{{ iface_firewall | default(omit)  }}"
+          iface_link_down: "{{ iface_link_down | default(omit) }}"
+          iface_macaddr: "{{ iface_macaddr | default(omit)  }}"
+          iface_mtu: "{{ iface_mtu | default(omit)  }}"
+          iface_queues: "{{ iface_queues | default(omit)  }}"
+          iface_rate: "{{ iface_rate | default(omit)  }}"
+          iface_tag: "{{ iface_tag | default(omit)  }}"
+          iface_trunks: "{{ iface_trunks | default(omit)  }}"
           iface_model: "{{ iface_model | default(omit)  }}"
 
     - name: NETWORK - VM - ADD NETWORK INTERFACES - PRINT JSON

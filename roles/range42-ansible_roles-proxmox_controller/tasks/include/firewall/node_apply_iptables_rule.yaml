@@ -10,9 +10,9 @@
 ## firewall work.
 ##
 ## Despite the name this is NOT raw iptables : every firewall action of this role talks to
-## the Proxmox firewall API, which generates the iptables rules itself. The only action
-## that touches iptables directly is network_delete_extra_snat_rules, because the SDN SNAT rule
-## is owned by ifupdown2 rather than by pve-firewall.
+## the Proxmox firewall API, which generates the iptables rules itself. The only actions
+## that touch iptables directly are network_delete_extra_snat_rules and network_list_snat_rules,
+## because the SDN SNAT rule is owned by ifupdown2 rather than by pve-firewall.
 ##
 ## THE POSITION IS NOT A PARAMETER, AND IT NEVER WAS.
 ## PVE inserts a created rule at the TOP of the chain and IGNORES any position asked for.

@@ -85,7 +85,7 @@
   ansible.builtin.include_tasks: "./include/snapshot/lxc/snapshot_create.yaml"
   when: proxmox_vm_action == "snapshot_lxc_create"
 
-- name: INCLUDE - ./include/snapshot/lxc/delete_create.yaml
+- name: INCLUDE - ./include/snapshot/lxc/snapshot_delete.yaml
   ansible.builtin.include_tasks: "./include/snapshot/lxc/snapshot_delete.yaml"
   when: proxmox_vm_action == "snapshot_lxc_delete"
 
@@ -231,15 +231,15 @@
   ansible.builtin.include_tasks: "./include/firewall/vm_list_log.yaml"
   when: proxmox_vm_action == "firewall_vm_list_log"
 
-- name: INCLUDE - ./include/firewall/firewall_vm_list_iptables_alias.yaml
+- name: INCLUDE - ./include/firewall/alias/vm_list_iptables_alias.yaml
   ansible.builtin.include_tasks: "./include/firewall/alias/vm_list_iptables_alias.yaml"
   when: proxmox_vm_action == "firewall_vm_list_iptables_alias"
 
-- name: INCLUDE - ./include/firewall/vm_add_iptables_alias.yaml
+- name: INCLUDE - ./include/firewall/alias/vm_add_iptables_alias.yaml
   ansible.builtin.include_tasks: "./include/firewall/alias/vm_add_iptables_alias.yaml"
   when: proxmox_vm_action == "firewall_vm_add_iptables_alias"
 
-- name: INCLUDE - ./include/firewall/vm_delete_iptables_alias.yaml
+- name: INCLUDE - ./include/firewall/alias/vm_delete_iptables_alias.yaml
   ansible.builtin.include_tasks: "./include/firewall/alias/vm_delete_iptables_alias.yaml"
   when: proxmox_vm_action == "firewall_vm_delete_iptables_alias"
 
