@@ -33,17 +33,10 @@
 ## Ansible run per subnet, which for a four-network scenario is four runs to answer a
 ## single question.
 ##
-## DO NOT CHANGE
-##  1. the iptables read is captured and its exit status checked BEFORE anything is
-##     counted. Piping straight into a grep turns a missing binary into a count of zero,
-##     and the action then reports a host it never managed to read.
-##  2. the grep that follows may legitimately find nothing - a host with no SNAT rule at
-##     all is a valid answer, not a failure. That is safe here only BECAUSE the read
-##     above is checked separately.
-##  3. no awk. The neighbouring write action parses with grep and sed for the same
-##     reason : one less language between Jinja, YAML and the shell.
-##  4. rules with no -s are skipped. A POSTROUTING rule that scopes no source network is
-##     not about a subnet's egress, so it is not this action's business.
+## Use the same shlex parser as reconciliation: count only actual SNAT or
+## MASQUERADE targets with a concrete, non-negated IPv4 source. Quoted comment
+## text cannot masquerade as a source, output interface, or jump target.
+## Failed reads are errors; an empty successful read is a legitimate empty list.
 ##
 
 - block:
@@ -71,43 +64,12 @@
       ## iptables lives in /usr/sbin, not always on a non interactive shell's PATH.
       environment:
         PATH: "/usr/sbin:/sbin:/usr/bin:/bin"
-      ansible.builtin.shell: |
-        set -u
-
-        command -v iptables >/dev/null 2>&1 || {
-          echo "list_snat_rules: iptables not found on $(hostname), PATH=$PATH" >&2
-          exit 1
-        }
-
-        ## captured, and its status checked, so a read failure cannot look like an empty chain
-        table=$(iptables -t nat -S POSTROUTING) || {
-          echo "list_snat_rules: cannot read the nat table on $(hostname)" >&2
-          exit 1
-        }
-
-        ## one line per rule that scopes a source network, then grouped by (source, target).
-        ## An empty result here means the host carries no such rule, which is a real answer.
-        printf '%s\n' "$table" | grep -- ' -s ' | while IFS= read -r line ; do
-          src=${line#* -s }
-          src=${src%% *}
-          ## the OUT INTERFACE : this is the answer to "where does this subnet actually leave
-          ## through". Proxmox auto-detects it from the default route when it writes the vnet
-          ## hook, so it is not something we declare anywhere - it can only be read here.
-          case "$line" in
-            *' -o '*) out=${line#* -o } ; out=${out%% *} ;;
-            *)        out="any" ;;
-          esac
-          case "$line" in
-            *' -j '*) tgt=${line##* -j } ; tgt=${tgt%% *} ;;
-            *)        tgt="none" ;;
-          esac
-          [ -n "$src" ] && printf '%s %s %s\n' "$src" "$out" "$tgt"
-        done | sort | uniq -c | while read -r cnt src out tgt ; do
-          printf '{"snat_source":"%s","snat_out_iface":"%s","snat_target":"%s","snat_count":%s}\n' \
-            "$src" "$out" "$tgt" "$cnt"
-        done
-      args:
-        executable: /bin/bash
+      ansible.builtin.command:
+        argv:
+          - python3
+          - -c
+          - "{{ lookup('file', role_path ~ '/files/snat_rules.py') }}"
+          - list
       ## by group, not by name, so the codename stays out of the role
       delegate_to: "{{ groups['proxmox_cli'] | first }}"
       register: proxmox_call
