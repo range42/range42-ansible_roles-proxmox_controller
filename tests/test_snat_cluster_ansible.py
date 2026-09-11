@@ -1,0 +1,250 @@
+"""Real Ansible + real helper processes; all API/rule data is disposable."""
+
+from copy import deepcopy
+import json
+import os
+from pathlib import Path
+import shutil
+import subprocess
+import sys
+
+import pytest
+import yaml
+
+from test_snat_preservation import (
+    fake as fake_rules,
+    OTHER_RULE,
+    TARGET,
+    TARGET_RULE,
+    UNRELATED,
+)
+
+ROLE = (
+    Path(__file__).resolve().parents[1]
+    / "roles/range42-ansible_roles-proxmox_controller"
+)
+
+
+def run_cluster(
+    tmp_path,
+    *,
+    mapping=None,
+    offline=False,
+    wrong_host=False,
+    delayed=False,
+    failed=False,
+):
+    role = tmp_path / "roles/range42-ansible_roles-proxmox_controller"
+    (role / "tasks/include/network").mkdir(parents=True)
+    shutil.copytree(ROLE / "files", role / "files")
+    fixtures = {}
+    hosts = {}
+    for index in (1, 2):
+        node = f"pve{index}"
+        directory = tmp_path / node
+        directory.mkdir()
+        state, writes, environment = fake_rules.__wrapped__(directory)
+        state.write_text(json.dumps([UNRELATED, OTHER_RULE, TARGET_RULE]))
+        environment["R42_TEST_NODE"] = "wrong" if wrong_host and index == 2 else node
+        environment["R42_ALLOW_EXACT"] = "1"
+        shim = directory / "python3"
+        shim.write_text(
+            f"#!{sys.executable}\nimport os,socket,sys\nsocket.gethostname=lambda:os.environ['R42_TEST_NODE']\nexec(sys.argv[2])\n"
+        )
+        shim.chmod(0o755)
+        fixtures[node] = {"state": str(state), "writes": str(writes)}
+        hosts[f"ssh{index}"] = {"fixture_environment": environment}
+    document = {
+        "status": [
+            {
+                "type": "node",
+                "name": f"pve{i}",
+                "online": 0 if offline and i == 2 else 1,
+            }
+            for i in (1, 2)
+        ],
+        "zones": [{"zone": "lab", "type": "simple", "nodes": "pve1"}],
+        "nodes": fixtures,
+        "apply_marker": str(tmp_path / "applied"),
+        "delayed": delayed,
+        "failed": failed,
+        "polls": str(tmp_path / "polls"),
+    }
+    api_fixture = tmp_path / "api.json"
+    api_fixture.write_text(json.dumps(document))
+
+    # Replace only the URI transport, keeping each task's delegation, loops,
+    # until/retry behavior, result shape and actual Python helpers intact.
+    def adapt(value):
+        if isinstance(value, list):
+            return [adapt(item) for item in value]
+        if not isinstance(value, dict):
+            return value
+        value = deepcopy(value)
+        for key in ("uri", "ansible.builtin.uri"):
+            if key in value:
+                params = value.pop(key)
+                value["range42_fixture_api"] = {
+                    "url": params["url"],
+                    "method": params.get("method", "GET"),
+                    "fixture_file": str(api_fixture),
+                }
+        if "ansible.builtin.command" in value and "snat_rules.py" in str(
+            value["ansible.builtin.command"]
+        ):
+            value["environment"] = (
+                "{{ hostvars[_sdn_snat_node.host].fixture_environment }}"
+            )
+        return {key: adapt(item) for key, item in value.items()}
+
+    for source in (ROLE / "tasks/include/network").glob("*.yaml"):
+        (role / "tasks/include/network" / source.name).write_text(
+            yaml.safe_dump(adapt(yaml.safe_load(source.read_text())), sort_keys=False)
+        )
+    (
+        role / "tasks/main.yml"
+    ).write_text("""- ansible.builtin.include_tasks: include/network/apply_network_sdn.yaml
+  when: proxmox_vm_action == 'network_apply_sdn'
+- ansible.builtin.include_tasks: include/network/preserve_network_snat_rules.yaml
+  when: proxmox_vm_action != 'network_apply_sdn'
+""")
+    library = tmp_path / "library"
+    library.mkdir()
+    (
+        library / "range42_fixture_api.py"
+    ).write_text("""from ansible.module_utils.basic import AnsibleModule
+import json,pathlib,urllib.parse
+m=AnsibleModule(argument_spec={'url':{'type':'str'},'method':{'type':'str'},'fixture_file':{'type':'str'}})
+fixture=json.loads(pathlib.Path(m.params['fixture_file']).read_text());url=urllib.parse.urlsplit(m.params['url']);path=url.path;query=urllib.parse.parse_qs(url.query)
+marker=pathlib.Path(fixture['apply_marker'])
+if path.endswith('/cluster/status'): data=fixture['status']
+elif path.endswith('/cluster/sdn/zones'): data=fixture['zones']
+elif path.endswith('/cluster/sdn') and m.params['method']=='PUT':
+ marker.touch()
+ for entry in fixture['nodes'].values():
+  file=pathlib.Path(entry['state']);rules=json.loads(file.read_text());rules.extend([rules[1],rules[2]]);file.write_text(json.dumps(rules))
+ data='UPID:pve1:111:1:499602D2:reloadnetworkall::root@pam:'
+elif '/tasks/' in path and path.endswith('/status'): data={'status':'stopped','exitstatus':'OK'}
+elif path.endswith('/tasks'):
+ node=path.split('/')[4];data=[]
+ if marker.exists() and query.get('source')!=['active']:
+  poll=pathlib.Path(fixture['polls']+'-'+node);count=int(poll.read_text())+1 if poll.exists() else 1;poll.write_text(str(count))
+  row={'upid':f'UPID:{node}:222:1:499602D3:srvreload:networking:root@pam:','node':node,'type':'srvreload','id':'networking','starttime':1234567891}
+  if not(fixture['delayed'] and node=='pve2' and count==1): row.update(endtime=1234567892,status='ERROR' if fixture['failed'] and node=='pve2' else 'OK')
+  data=[row]
+else: m.fail_json(msg='Unexpected fixture API path')
+m.exit_json(changed=False,status=200,json={'data':data})
+""")
+    inventory = tmp_path / "hosts.yml"
+    inventory.write_text(
+        yaml.safe_dump(
+            {
+                "all": {
+                    "vars": {
+                        "ansible_connection": "local",
+                        "ansible_python_interpreter": sys.executable,
+                    },
+                    "children": {
+                        "proxmox": {"hosts": {"api": {}}},
+                        "proxmox_cli": {"hosts": hosts},
+                    },
+                }
+            }
+        )
+    )
+    tasks = []
+    for action in (
+        "network_snapshot_snat_rules",
+        "network_apply_sdn",
+        "network_reconcile_snat_sources",
+        "network_restore_snat_snapshot",
+    ):
+        tasks.append(
+            {
+                "ansible.builtin.include_role": {"name": role.name},
+                "vars": {"proxmox_vm_action": action},
+            }
+        )
+    play = [
+        {
+            "hosts": "proxmox",
+            "gather_facts": False,
+            "vars": {
+                "proxmox_node": "pve1",
+                "proxmox_api_host": "fixture.invalid",
+                "proxmox_api_user": "fixture",
+                "proxmox_api_token_id": "fixture",
+                "proxmox_api_token_secret": "not-a-secret",
+                "sdn_snat_node_hosts": mapping
+                if mapping is not None
+                else {"pve1": "ssh1", "pve2": "ssh2"},
+                "sdn_snat_desired_sources": [
+                    {"source": TARGET, "vnet": "net1", "zone": "lab", "want": 0}
+                ],
+                "sdn_apply_poll_retries": 2,
+                "sdn_apply_poll_delay": 0,
+            },
+            "tasks": tasks,
+        }
+    ]
+    playbook = tmp_path / "playbook.yml"
+    playbook.write_text(yaml.safe_dump(play, sort_keys=False))
+    result = subprocess.run(
+        [
+            str(Path(sys.executable).with_name("ansible-playbook")),
+            "-i",
+            str(inventory),
+            str(playbook),
+        ],
+        env={
+            **os.environ,
+            "ANSIBLE_ROLES_PATH": str(tmp_path / "roles"),
+            "ANSIBLE_LIBRARY": str(library),
+            "ANSIBLE_NOCOLOR": "1",
+        },
+        capture_output=True,
+        text=True,
+        timeout=90,
+    )
+    return result, document
+
+
+def test_real_ansible_preserves_every_node_and_reconciles_only_zone_members(tmp_path):
+    result, fixture = run_cluster(tmp_path, delayed=True)
+    assert result.returncode == 0, result.stdout[-6000:] + result.stderr
+    assert json.loads(Path(fixture["nodes"]["pve1"]["state"]).read_text()) == [
+        UNRELATED,
+        OTHER_RULE,
+    ]
+    assert json.loads(Path(fixture["nodes"]["pve2"]["state"]).read_text()) == [
+        UNRELATED,
+        OTHER_RULE,
+        TARGET_RULE,
+    ]
+    assert int(Path(fixture["polls"] + "-pve2").read_text()) >= 2
+
+
+@pytest.mark.parametrize(
+    "arguments",
+    [{"mapping": {"pve1": "ssh1"}}, {"offline": True}, {"wrong_host": True}],
+)
+def test_missing_offline_or_wrong_ssh_node_refuses_before_any_global_write(
+    tmp_path, arguments
+):
+    result, fixture = run_cluster(tmp_path, **arguments)
+    assert result.returncode != 0
+    assert not Path(fixture["apply_marker"]).exists()
+    assert all(
+        json.loads(Path(node["writes"]).read_text()) == []
+        for node in fixture["nodes"].values()
+    )
+
+
+def test_failed_second_node_reload_prevents_cleanup_on_every_node(tmp_path):
+    result, fixture = run_cluster(tmp_path, failed=True)
+    assert result.returncode != 0
+    assert Path(fixture["apply_marker"]).exists(), result.stdout[-5000:]
+    assert all(
+        json.loads(Path(node["writes"]).read_text()) == []
+        for node in fixture["nodes"].values()
+    )

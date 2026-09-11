@@ -76,9 +76,11 @@ if args==['-S','POSTROUTING']:
   time.sleep(0.2)
  print('\\n'.join(shlex.join(row) for row in rules))
 elif args[:2]==['-D','POSTROUTING']:
- assert len(args)==3 and args[2].isdigit(), 'Preservation must delete the appended position, not the first matching rule'
- index=int(args[2])-1; del rules[index];state.write_text(json.dumps(rules))
- history=json.loads(writes.read_text()); history.append(int(args[2]));writes.write_text(json.dumps(history))
+ numeric=len(args)==3 and args[2].isdigit()
+ assert numeric or os.environ.get('R42_ALLOW_EXACT')=='1', 'Preservation must delete the appended position, not the first matching rule'
+ index=int(args[2])-1 if numeric else rules.index(['-A',*args[1:]])
+ del rules[index];state.write_text(json.dumps(rules))
+ history=json.loads(writes.read_text()); history.append(int(args[2]) if numeric else 'exact');writes.write_text(json.dumps(history))
 else: raise AssertionError(args)
 """
     )
@@ -213,6 +215,7 @@ def test_empty_successful_table_is_a_valid_snapshot(fake):
 def test_snapshot_exposes_exact_source_counts_for_noop_decisions(fake):
     document = snapshot(fake, [UNRELATED, OTHER_RULE, OTHER_SHAPE, TARGET_RULE])
     assert document["nat_counts"] == {OTHER: 2, TARGET: 1}
+    assert type(document["captured_at"]) is int and document["captured_at"] > 0
 
 
 def test_invalid_exclusion_input_cannot_authorize_a_source(fake):

@@ -207,32 +207,7 @@ def restore_snapshot(document):
             "original_non_target_rules": len(original), "preserved": True}
 
 
-def main(arguments):
-    if arguments in (["snapshot"], ["snapshot-reviewed"]):
-        policy = preservation_policy(read_document()) if arguments == ["snapshot-reviewed"] else None
-        with legacy_transaction():
-            table = read_table()
-        counts = dict(Counter(rule["source"] for rule in parse_rules(table)))
-        snapshot = {"version": 1, "node": socket.gethostname(), "rules": table, "nat_counts": counts}
-        if policy is not None:
-            snapshot["reviewed_policy"] = policy
-        print(json.dumps(snapshot))
-        return
-    if arguments == ["restore"]:
-        document = read_document()
-        with legacy_transaction():
-            result = restore_snapshot(document)
-        print(json.dumps(result))
-        return
-    if arguments == ["list"]:
-        counts = Counter((rule["source"], rule["out"], rule["target"]) for rule in read_rules())
-        for (source, out, target), count in sorted(counts.items()):
-            print(json.dumps({"snat_source": source, "snat_out_iface": out, "snat_target": target, "snat_count": count}))
-        return
-    if len(arguments) != 3 or arguments[0] != "reconcile" or arguments[2] not in {"0", "1"}:
-        raise ValueError("Expected list or reconcile CIDR 0|1")
-    source = str(ipaddress.IPv4Network(arguments[1], strict=True))
-    want = int(arguments[2])
+def reconcile_source(source, want):
     matches = [rule for rule in read_rules() if rule["source"] == source]
     before = len(matches)
     deleted = 0
@@ -247,7 +222,57 @@ def main(arguments):
         matches = updated
     # Never create a missing rule. The caller must compare after with want;
     # an enabled subnet with zero live rules remains observably mismatched.
-    print(json.dumps({"before": before, "after": len(matches), "want": want, "deleted": deleted}))
+    return {"before": before, "after": len(matches), "want": want, "deleted": deleted}
+
+
+def main(arguments):
+    if arguments in (["snapshot"], ["snapshot-reviewed"]):
+        policy = preservation_policy(read_document()) if arguments == ["snapshot-reviewed"] else None
+        captured_at = int(time.time())
+        with legacy_transaction():
+            table = read_table()
+        counts = dict(Counter(rule["source"] for rule in parse_rules(table)))
+        snapshot = {"version": 1, "node": socket.gethostname(), "rules": table, "nat_counts": counts,
+                    "captured_at": captured_at}
+        if policy is not None:
+            snapshot["reviewed_policy"] = policy
+        print(json.dumps(snapshot))
+        return
+    if arguments == ["restore"]:
+        document = read_document()
+        with legacy_transaction():
+            result = restore_snapshot(document)
+        print(json.dumps(result))
+        return
+    if arguments == ["reconcile-node"]:
+        document = read_document()
+        if document.get("node") != socket.gethostname():
+            raise ValueError("The reconciliation target is not this node")
+        targets = document.get("targets")
+        if not isinstance(targets, list) or len(targets) > 64 or any(not isinstance(target, dict) for target in targets):
+            raise ValueError("Invalid node reconciliation targets")
+        sources = preservation_policy({"excluded_sources": [target.get("source") for target in targets]})["excluded_sources"]
+        if any(type(target.get("want")) is not int or target["want"] not in (0, 1) for target in targets):
+            raise ValueError("Node reconciliation requires strict desired states 0 or 1")
+        results = []
+        with legacy_transaction():
+            for source, target in zip(sources, targets):
+                result = reconcile_source(source, target["want"])
+                if result["after"] != target["want"]:
+                    raise ValueError("A desired enabled source has no live NAT rule")
+                results.append({"source": source, **result})
+        print(json.dumps({"node": socket.gethostname(), "results": results}))
+        return
+    if arguments == ["list"]:
+        counts = Counter((rule["source"], rule["out"], rule["target"]) for rule in read_rules())
+        for (source, out, target), count in sorted(counts.items()):
+            print(json.dumps({"snat_source": source, "snat_out_iface": out, "snat_target": target, "snat_count": count}))
+        return
+    if len(arguments) != 3 or arguments[0] != "reconcile" or arguments[2] not in {"0", "1"}:
+        raise ValueError("Expected list or reconcile CIDR 0|1")
+    source = str(ipaddress.IPv4Network(arguments[1], strict=True))
+    want = int(arguments[2])
+    print(json.dumps(reconcile_source(source, want)))
 
 
 if __name__ == "__main__":

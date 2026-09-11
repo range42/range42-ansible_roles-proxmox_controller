@@ -1,0 +1,39 @@
+---
+- name: NETWORK - SNAT - READ ACTIVE NODE NETWORK RELOADS
+  ansible.builtin.uri:
+    url: "https://{{ proxmox_api_host }}/api2/json/nodes/{{ _sdn_snat_node.node }}/tasks?source=active&typefilter=srvreload&limit=129"
+    method: GET
+    headers:
+      Authorization: "PVEAPIToken={{ proxmox_api_user }}!{{ proxmox_api_token_id }}={{ proxmox_api_token_secret }}"
+    validate_certs: "{{ proxmox_api_validate_certs | default(false) }}"
+  register: _sdn_snat_active
+  no_log: true
+
+- name: NETWORK - SNAT - REQUIRE NO ACTIVE NODE NETWORK RELOAD
+  ansible.builtin.command:
+    argv: [python3, -c, "{{ lookup('file', role_path ~ '/files/snat_cluster.py') }}", reload-baseline]
+    stdin: "{{ {'node': _sdn_snat_node.node, 'rows': _sdn_snat_active.json.data} | to_json }}"
+  changed_when: false
+  no_log: true
+
+- name: NETWORK - SNAT - READ RECENT NODE NETWORK RELOAD IDENTITIES
+  ansible.builtin.uri:
+    url: "https://{{ proxmox_api_host }}/api2/json/nodes/{{ _sdn_snat_node.node }}/tasks?source=all&typefilter=srvreload&limit=129&since={{ network_snat_snapshots[_sdn_snat_node.node].captured_at }}"
+    method: GET
+    headers:
+      Authorization: "PVEAPIToken={{ proxmox_api_user }}!{{ proxmox_api_token_id }}={{ proxmox_api_token_secret }}"
+    validate_certs: "{{ proxmox_api_validate_certs | default(false) }}"
+  register: _sdn_snat_recent
+  no_log: true
+
+- name: NETWORK - SNAT - VALIDATE THE RECENT NODE RELOAD BASELINE
+  ansible.builtin.command:
+    argv: [python3, -c, "{{ lookup('file', role_path ~ '/files/snat_cluster.py') }}", reload-baseline]
+    stdin: "{{ {'node': _sdn_snat_node.node, 'rows': _sdn_snat_recent.json.data} | to_json }}"
+  register: _sdn_snat_baseline_read
+  changed_when: false
+  no_log: true
+
+- name: NETWORK - SNAT - RETAIN THE NODE RELOAD BASELINE
+  ansible.builtin.set_fact:
+    network_snat_reload_baseline: "{{ network_snat_reload_baseline | combine({_sdn_snat_node.node: (_sdn_snat_baseline_read.stdout | from_json).upids}) }}"

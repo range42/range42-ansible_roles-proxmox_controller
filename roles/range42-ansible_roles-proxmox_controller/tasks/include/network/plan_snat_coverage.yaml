@@ -1,0 +1,66 @@
+---
+- name: NETWORK - SNAT - READ AUTHORITATIVE CLUSTER MEMBERSHIP
+  ansible.builtin.uri:
+    url: "https://{{ proxmox_api_host }}/api2/json/cluster/status"
+    method: GET
+    headers:
+      Authorization: "PVEAPIToken={{ proxmox_api_user }}!{{ proxmox_api_token_id }}={{ proxmox_api_token_secret }}"
+    validate_certs: "{{ proxmox_api_validate_certs | default(false) }}"
+  register: _sdn_snat_status
+  no_log: true
+
+- name: NETWORK - SNAT - READ DECLARED ZONE MEMBERSHIP
+  ansible.builtin.uri:
+    url: "https://{{ proxmox_api_host }}/api2/json/cluster/sdn/zones"
+    method: GET
+    headers:
+      Authorization: "PVEAPIToken={{ proxmox_api_user }}!{{ proxmox_api_token_id }}={{ proxmox_api_token_secret }}"
+    validate_certs: "{{ proxmox_api_validate_certs | default(false) }}"
+  register: _sdn_snat_zones
+  no_log: true
+  when: proxmox_vm_action == 'network_snapshot_snat_rules'
+
+- name: NETWORK - SNAT - CAPTURE THE REQUESTED SCOPE
+  ansible.builtin.set_fact:
+    network_snat_plan_input:
+      primary_node: "{{ proxmox_node }}"
+      cli_hosts: "{{ groups['proxmox_cli'] | default([]) }}"
+      zones: "{{ _sdn_snat_zones.json.data }}"
+      desired_sources: "{{ sdn_snat_desired_sources | default([]) }}"
+      known_subnets: "{{ network_list_sdn_subnets | default([]) }}"
+      new_zones: "{{ sdn_snat_new_zones | default({}) }}"
+      policy:
+        excluded_sources: "{{ sdn_snat_excluded_sources | default([]) }}"
+        allow_new_rules: "{{ sdn_snat_allow_new_rules | default(false) }}"
+  no_log: true
+  when: proxmox_vm_action == 'network_snapshot_snat_rules'
+
+- name: NETWORK - SNAT - VALIDATE NODE MAPPING AND SOURCE MEMBERSHIP
+  ansible.builtin.command:
+    argv:
+      - python3
+      - -c
+      - "{{ lookup('file', role_path ~ '/files/snat_cluster.py') }}"
+      - plan
+    stdin: "{{ network_snat_plan_input | combine({'status': _sdn_snat_status.json.data, 'node_hosts': sdn_snat_node_hosts | default(none), 'cli_hosts': groups['proxmox_cli'] | default([]), 'primary_node': proxmox_node}) | to_json }}"
+  register: _sdn_snat_plan_read
+  changed_when: false
+  failed_when: false
+  no_log: true
+
+- name: NETWORK - SNAT - REQUIRE COMPLETE COVERAGE BEFORE WRITES
+  ansible.builtin.assert:
+    that: _sdn_snat_plan_read.rc == 0
+    fail_msg: "No network write is authorized: {{ _sdn_snat_plan_read.stderr | default('SNAT coverage could not be established') }}"
+
+- name: NETWORK - SNAT - REQUIRE UNCHANGED COVERAGE AFTER SNAPSHOT
+  ansible.builtin.assert:
+    that: network_snat_plan is defined and network_snat_plan == (_sdn_snat_plan_read.stdout | from_json)
+    fail_msg: Cluster membership, SSH mapping or source scope changed after snapshot. Stop and review the pending state.
+  when: proxmox_vm_action != 'network_snapshot_snat_rules'
+
+- name: NETWORK - SNAT - RETAIN THE VERIFIED PLAN
+  ansible.builtin.set_fact:
+    network_snat_plan: "{{ _sdn_snat_plan_read.stdout | from_json }}"
+  no_log: true
+  when: proxmox_vm_action == 'network_snapshot_snat_rules'

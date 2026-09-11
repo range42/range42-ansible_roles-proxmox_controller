@@ -423,7 +423,7 @@
 
 - name: INCLUDE - ./include/network/preserve_network_snat_rules.yaml
   ansible.builtin.include_tasks: "./include/network/preserve_network_snat_rules.yaml"
-  when: proxmox_vm_action in ['network_snapshot_snat_rules', 'network_restore_snat_snapshot']
+  when: proxmox_vm_action in ['network_snapshot_snat_rules', 'network_restore_snat_snapshot', 'network_reconcile_snat_sources']
 
 - name: INCLUDE - ./include/network/delete_network_extra_snat_rules.yaml
   ansible.builtin.include_tasks: "./include/network/delete_network_extra_snat_rules.yaml"
