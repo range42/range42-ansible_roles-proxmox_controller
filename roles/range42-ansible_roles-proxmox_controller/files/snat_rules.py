@@ -121,11 +121,37 @@ def read_rules():
     return parse_rules(read_table())
 
 
+def preservation_policy(document):
+    if not isinstance(document, dict) or set(document) - {"excluded_sources", "allow_new_rules"}:
+        raise ValueError("Invalid preservation policy")
+    excluded = document.get("excluded_sources", [])
+    if not isinstance(excluded, list) or len(excluded) > 64 or not all(isinstance(source, str) for source in excluded):
+        raise ValueError("Invalid excluded source list")
+    canonical = [str(ipaddress.IPv4Network(source, strict=True)) for source in excluded]
+    if canonical != excluded or len(set(canonical)) != len(canonical):
+        raise ValueError("Changed sources must be unique canonical IPv4 CIDRs")
+    allow_new = document.get("allow_new_rules", False)
+    if type(allow_new) is not bool:
+        raise ValueError("New rule policy must be explicit")
+    return {"excluded_sources": canonical, "allow_new_rules": allow_new}
+
+
+def read_document():
+    document = sys.stdin.read(16 * 1024 * 1024 + 1)
+    if len(document) > 16 * 1024 * 1024:
+        raise ValueError("Snapshot exceeds audit bound")
+    document = json.loads(document)
+    if not isinstance(document, dict):
+        raise ValueError("Invalid snapshot document")
+    return document
+
+
 def restore_snapshot(document):
     """Delete only appended duplicate NAT identities; preserve old rule positions.
 
     Scoped changes refuse unknown non-target drift. Explicit standalone apply
-    may retain new NAT identities introduced by its pending configuration.
+    may retain NAT rules for new sources introduced by pending configuration.
+    A reviewed snapshot binds the existing sources authorized to change.
     The caller holds the conventional xtables lock through all checks/deletions.
     """
     snapshot = document.get("snapshot")
@@ -138,13 +164,14 @@ def restore_snapshot(document):
         for row in before
     ):
         raise ValueError("Invalid snapshot rule arguments")
-    excluded = document.get("excluded_sources", [])
-    if not isinstance(excluded, list) or len(excluded) > 64 or not all(isinstance(source, str) for source in excluded):
-        raise ValueError("Invalid excluded source list")
-    excluded = {str(ipaddress.IPv4Network(source, strict=True)) for source in excluded}
-    allow_new = document.get("allow_new_rules", False)
-    if type(allow_new) is not bool:
-        raise ValueError("New rule policy must be explicit")
+    policy = preservation_policy({
+        "excluded_sources": document.get("excluded_sources", []),
+        "allow_new_rules": document.get("allow_new_rules", False),
+    })
+    if "reviewed_policy" in snapshot and preservation_policy(snapshot["reviewed_policy"]) != policy:
+        raise ValueError("Preservation scope changed after the snapshot")
+    excluded = set(policy["excluded_sources"])
+    allow_new = policy["allow_new_rules"]
 
     def protected(table):
         nat = {tuple(rule["argv"]): rule["source"] for rule in parse_rules(table)}
@@ -156,12 +183,13 @@ def restore_snapshot(document):
     if [row for _, row in observed[:len(original)]] != original:
         raise ValueError("Non-target rules were removed, reordered or inserted")
     known_nat = {tuple(rule["argv"]) for rule in parse_rules(original)}
+    prior_sources = {rule["source"] for rule in parse_rules(before)}
     delete = []
     retained = 0
     for index, row in observed[len(original):]:
         if tuple(row) in known_nat:
             delete.append(index)
-        elif allow_new and parse_rules([row]):
+        elif allow_new and (rules := parse_rules([row])) and rules[0]["source"] not in prior_sources:
             retained += 1
         else:
             raise ValueError("Unexpected new non-target rule; preserve for operator review")
@@ -180,19 +208,18 @@ def restore_snapshot(document):
 
 
 def main(arguments):
-    if arguments == ["snapshot"]:
+    if arguments in (["snapshot"], ["snapshot-reviewed"]):
+        policy = preservation_policy(read_document()) if arguments == ["snapshot-reviewed"] else None
         with legacy_transaction():
             table = read_table()
         counts = dict(Counter(rule["source"] for rule in parse_rules(table)))
-        print(json.dumps({"version": 1, "node": socket.gethostname(), "rules": table, "nat_counts": counts}))
+        snapshot = {"version": 1, "node": socket.gethostname(), "rules": table, "nat_counts": counts}
+        if policy is not None:
+            snapshot["reviewed_policy"] = policy
+        print(json.dumps(snapshot))
         return
     if arguments == ["restore"]:
-        document = sys.stdin.read(16 * 1024 * 1024 + 1)
-        if len(document) > 16 * 1024 * 1024:
-            raise ValueError("Snapshot exceeds audit bound")
-        document = json.loads(document)
-        if not isinstance(document, dict):
-            raise ValueError("Invalid snapshot document")
+        document = read_document()
         with legacy_transaction():
             result = restore_snapshot(document)
         print(json.dumps(result))

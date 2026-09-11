@@ -188,11 +188,11 @@ def test_standalone_apply_can_retain_legitimate_new_rules_while_removing_known_d
 ):
     baseline = [UNRELATED, OTHER_RULE, LEGACY]
     before = snapshot(fake, baseline)
-    fake[0].write_text(json.dumps([*baseline, OTHER_RULE, TARGET_RULE, OTHER_SHAPE]))
+    fake[0].write_text(json.dumps([*baseline, OTHER_RULE, TARGET_RULE]))
     result = restore(fake, before, allow_new=True)
     assert result.returncode == 0, result.stderr
-    assert json.loads(fake[0].read_text()) == [*baseline, TARGET_RULE, OTHER_SHAPE]
-    assert json.loads(result.stdout)["retained_new_rules"] == 2
+    assert json.loads(fake[0].read_text()) == [*baseline, TARGET_RULE]
+    assert json.loads(result.stdout)["retained_new_rules"] == 1
 
 
 def test_restore_rejects_snapshot_from_another_node(fake):

@@ -15,7 +15,8 @@
           - python3
           - -c
           - "{{ lookup('file', role_path ~ '/files/snat_rules.py') }}"
-          - snapshot
+          - "{{ 'snapshot-reviewed' if (sdn_snat_review_policy | default(false) | bool) else 'snapshot' }}"
+        stdin: "{{ {'excluded_sources': sdn_snat_excluded_sources | default([]), 'allow_new_rules': sdn_snat_allow_new_rules | default(false)} | to_json }}"
       environment:
         PATH: /usr/sbin:/sbin:/usr/bin:/bin
       delegate_to: "{{ groups['proxmox_cli'] | first }}"

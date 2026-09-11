@@ -29,9 +29,26 @@ real-Ansible checks pass afterward. No host firewall command, full repository
 suite, or live activation was performed. The environment's pre-existing pytest
 asyncio default-loop deprecation warning is unrelated to these synchronous tests.
 
-The paired playbooks worktree remains incomplete: legitimate pending removals or
-reordering need an explicit reviewed scope, and a global apply needs snapshots,
+`snapshot-reviewed` now accepts a JSON preservation policy before reading the
+table: `excluded_sources` is a unique canonical IPv4 CIDR list (maximum 64), and
+`allow_new_rules` is a boolean. It records that exact policy in `reviewed_policy`;
+restore refuses a different policy. This is an accidental-scope-change guard in
+trusted automation, not a cryptographic authorization boundary.
+
+Listed source NAT rules may be removed/reordered/replaced by pending apply.
+Non-NAT rules and untouched source rules retain their relative order, arguments
+and original multiplicities. Only exact appended duplicate identities are
+deleted. `allow_new_rules` permits appended rules for new source CIDRs; new
+shapes for existing untouched sources fail before any cleanup. The strict 0/1
+reconcile primitive remains separate and unchanged.
+
+The continuation passed 55 focused controller tests, including four real-Ansible
+cases. Invalid review input stops before the simulated apply; listed changes,
+untouched-source drift, non-NAT protection and stale policy all have regressions.
+
+The paired playbooks worktree remains incomplete: a global apply needs snapshots,
 target reconciliation and preservation covering every affected cluster node.
+No nft implementation, multi-node coverage or live acceptance is claimed.
 Do not activate the paired preservation release until those gaps are handled.
 
 References: [iptables locking and XTABLES_LOCKFILE](https://man7.org/linux/man-pages/man8/iptables.8.html),

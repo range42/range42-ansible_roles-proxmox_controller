@@ -33,9 +33,11 @@ ROLE = (
 )
 
 
-@pytest.mark.parametrize("concurrent_change", [False, True])
+@pytest.mark.parametrize("concurrent_change,reviewed_scope", [
+    (False, None), (True, None), (False, [TARGET]), (False, ["10.0.0.9/24"]),
+])
 def test_actual_ansible_snapshot_and_restore_preserve_scope_without_logging_rule_contents(
-    fake, tmp_path, concurrent_change
+    fake, tmp_path, concurrent_change, reviewed_scope
 ):
     state, _, env = fake
     if concurrent_change:
@@ -57,8 +59,9 @@ def test_actual_ansible_snapshot_and_restore_preserve_scope_without_logging_rule
         "vars": {
             "role_path": str(ROLE),
             "proxmox_node": socket.gethostname().split(".")[0],
-            "sdn_snat_excluded_sources": [TARGET],
+            "sdn_snat_excluded_sources": reviewed_scope if reviewed_scope is not None else [TARGET],
             "sdn_snat_allow_new_rules": False,
+            "sdn_snat_review_policy": reviewed_scope is not None,
         },
         "tasks": [
             {
@@ -120,6 +123,11 @@ def test_actual_ansible_snapshot_and_restore_preserve_scope_without_logging_rule
         text=True,
         timeout=30,
     )
+    if reviewed_scope == ["10.0.0.9/24"]:
+        assert result.returncode != 0
+        assert "no network write is authorized" in result.stdout
+        assert json.loads(state.read_text()) == before
+        return
     if concurrent_change:
         assert result.returncode != 0
         assert "SNAT preservation did not finish" in result.stdout
