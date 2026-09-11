@@ -2,6 +2,7 @@
 
 import importlib.util
 from concurrent.futures import ThreadPoolExecutor
+import hashlib
 import json
 import os
 from pathlib import Path
@@ -16,12 +17,21 @@ SCRIPT = (
     Path(__file__).resolve().parents[1]
     / "roles/range42-ansible_roles-proxmox_controller/files/sdn_delete_journal.py"
 )
+CLUSTER_ID = "pve-root-ca-sha256:" + "a" * 64
+OTHER_CLUSTER_ID = "pve-root-ca-sha256:" + "b" * 64
 
 
 def invoke(active_root, operation, **fields):
     return subprocess.run(
         [sys.executable, str(SCRIPT), operation],
-        input=json.dumps({"root": str(active_root), "zone": "lab", **fields}),
+        input=json.dumps(
+            {
+                "root": str(active_root),
+                "zone": "lab",
+                "cluster_identity": CLUSTER_ID,
+                **fields,
+            }
+        ),
         text=True,
         capture_output=True,
         check=False,
@@ -55,6 +65,7 @@ def test_begin_retains_original_evidence_and_blocks_incomplete_retry(tmp_path):
     assert len(receipt["token"]) == 64
     assert "private-original-rule" not in json.dumps(receipt)
     record = json.loads(record_path.read_text())
+    assert record["cluster_identity"] == CLUSTER_ID
     assert record["payload"] == evidence()
     assert record["state"] == "incomplete"
     assert stat.S_IMODE(record_path.stat().st_mode) == 0o600
@@ -166,6 +177,7 @@ def test_file_fsync_failure_preserves_existing_incomplete_record(
             {
                 "root": str(tmp_path),
                 "zone": "lab",
+                "cluster_identity": CLUSTER_ID,
                 "token": receipt["token"],
                 "phase": "deleted",
             },
@@ -185,7 +197,13 @@ def test_begin_fsync_failure_leaves_no_partial_evidence(tmp_path, monkeypatch):
     monkeypatch.setattr(helper.os, "fsync", fail_fsync)
     with pytest.raises(OSError):
         helper.execute(
-            "begin", {"root": str(tmp_path), "zone": "lab", "payload": evidence()}
+            "begin",
+            {
+                "root": str(tmp_path),
+                "zone": "lab",
+                "cluster_identity": CLUSTER_ID,
+                "payload": evidence(),
+            },
         )
     assert not (tmp_path / ".sdn-delete/lab.json").exists()
     assert not list((tmp_path / ".sdn-delete").glob("*.tmp"))
@@ -255,6 +273,7 @@ def test_directory_fsync_failure_restores_previous_incomplete_record(
             {
                 "root": str(tmp_path),
                 "zone": "lab",
+                "cluster_identity": CLUSTER_ID,
                 "token": receipt["token"],
                 "phase": "deleted",
             },
@@ -280,7 +299,13 @@ def test_begin_directory_fsync_failure_retains_incomplete_evidence(
     monkeypatch.setattr(helper.os, "fsync", fail_directory)
     with pytest.raises(OSError):
         helper.execute(
-            "begin", {"root": str(tmp_path), "zone": "lab", "payload": evidence()}
+            "begin",
+            {
+                "root": str(tmp_path),
+                "zone": "lab",
+                "cluster_identity": CLUSTER_ID,
+                "payload": evidence(),
+            },
         )
     record = json.loads((tmp_path / ".sdn-delete/lab.json").read_text())
     assert record["state"] == "incomplete"
@@ -310,7 +335,12 @@ def test_oversized_evidence_is_rejected_before_record_creation(tmp_path, monkeyp
     with pytest.raises(ValueError):
         helper.execute(
             "begin",
-            {"root": str(tmp_path), "zone": "lab", "payload": {"large": "x" * 512}},
+            {
+                "root": str(tmp_path),
+                "zone": "lab",
+                "cluster_identity": CLUSTER_ID,
+                "payload": {"large": "x" * 512},
+            },
         )
     assert not (tmp_path / ".sdn-delete/lab.json").exists()
 
@@ -318,10 +348,168 @@ def test_oversized_evidence_is_rejected_before_record_creation(tmp_path, monkeyp
 def test_phase_limit_keeps_room_for_completion(tmp_path, monkeypatch):
     helper = module()
     monkeypatch.setattr(helper, "MAX_EVENTS", 3)
-    base = {"root": str(tmp_path), "zone": "lab"}
+    base = {"root": str(tmp_path), "zone": "lab", "cluster_identity": CLUSTER_ID}
     receipt = helper.execute("begin", {**base, "payload": evidence()})
     operation = {**base, "token": receipt["token"], "phase": "deleted"}
     helper.execute("phase", operation)
     with pytest.raises(ValueError):
         helper.execute("phase", operation)
     assert helper.execute("complete", operation)["state"] == "completed"
+
+
+@pytest.mark.parametrize("operation", ["check", "begin", "phase", "complete"])
+def test_receipt_cannot_be_used_with_another_cluster(tmp_path, operation):
+    receipt = success(tmp_path, "begin", payload=evidence())
+    if operation in {"check", "begin"}:
+        success(tmp_path, "complete", token=receipt["token"])
+    path = Path(receipt["path"])
+    original = path.read_bytes()
+    result = invoke(
+        tmp_path,
+        operation,
+        cluster_identity=OTHER_CLUSTER_ID,
+        token=receipt["token"],
+        payload=evidence(),
+        phase="deleted",
+    )
+    assert result.returncode != 0
+    assert result.stdout == ""
+    assert path.read_bytes() == original
+    assert not list(path.parent.glob("lab.*.json"))
+
+
+def test_preliminary_check_can_run_before_cluster_discovery(tmp_path):
+    helper = module()
+    preliminary = {"root": str(tmp_path), "zone": "lab"}
+    assert helper.execute("check", preliminary)["state"] == "absent"
+    receipt = success(tmp_path, "begin", payload=evidence())
+    with pytest.raises(ValueError):
+        helper.execute("check", preliminary)
+    success(tmp_path, "complete", token=receipt["token"])
+    assert helper.execute("check", preliminary)["state"] == "completed"
+
+
+@pytest.mark.parametrize("operation", ["begin", "phase", "complete"])
+def test_cluster_identity_is_required_for_every_mutation(tmp_path, operation):
+    helper = module()
+    document = {
+        "root": str(tmp_path),
+        "zone": "lab",
+        "payload": evidence(),
+        "phase": "deleted",
+    }
+    if operation != "begin":
+        document["token"] = success(tmp_path, "begin", payload=evidence())["token"]
+    with pytest.raises(ValueError):
+        helper.execute(operation, document)
+
+
+@pytest.mark.parametrize(
+    "identity",
+    [
+        None,
+        "",
+        "a" * 64,
+        "pve-root-ca-sha256:" + "A" * 64,
+        "pve-root-ca-sha256:" + "a" * 63,
+        [],
+    ],
+)
+def test_invalid_cluster_identity_is_rejected_even_for_check(tmp_path, identity):
+    result = invoke(tmp_path, "check", cluster_identity=identity)
+    assert result.returncode != 0
+    assert result.stdout == ""
+
+
+def test_legacy_unbound_completed_evidence_is_never_adopted(tmp_path):
+    receipt = success(tmp_path, "begin", payload=evidence())
+    success(tmp_path, "complete", token=receipt["token"])
+    path = Path(receipt["path"])
+    legacy = json.loads(path.read_text())
+    legacy.pop("cluster_identity", None)
+    legacy["version"] = 1
+    path.write_text(json.dumps(legacy))
+    original = path.read_bytes()
+    assert invoke(tmp_path, "check").returncode != 0
+    assert invoke(tmp_path, "begin", payload=evidence()).returncode != 0
+    assert path.read_bytes() == original
+    assert not list(path.parent.glob("lab.*.json"))
+
+
+def test_large_bounded_deletion_can_record_every_phase(tmp_path):
+    helper = module()
+    document = {"root": str(tmp_path), "zone": "lab", "cluster_identity": CLUSTER_ID}
+    receipt = helper.execute("begin", {**document, "payload": evidence()})
+    document["token"] = receipt["token"]
+    for _ in range(265):
+        helper.execute("phase", {**document, "phase": "declaration_deleted"})
+    assert helper.execute("complete", document)["state"] == "completed"
+    assert helper.execute("check", document)["state"] == "completed"
+
+
+@pytest.mark.parametrize("operation", ["check", "begin"])
+def test_incomplete_other_zone_blocks_cluster_admission(tmp_path, operation):
+    receipt = success(tmp_path, "begin", payload=evidence())
+    original = Path(receipt["path"]).read_bytes()
+    result = invoke(tmp_path, operation, zone="other", payload=evidence())
+    assert result.returncode != 0
+    assert not (tmp_path / ".sdn-delete/other.json").exists()
+    assert Path(receipt["path"]).read_bytes() == original
+
+
+def test_only_one_concurrent_zone_can_begin_cluster_deletion(tmp_path):
+    success(tmp_path, "check")
+    with ThreadPoolExecutor(max_workers=4) as workers:
+        results = list(
+            workers.map(
+                lambda zone: invoke(tmp_path, "begin", zone=zone, payload=evidence()),
+                ["lab", "test", "demo", "other"],
+            )
+        )
+    assert sum(result.returncode == 0 for result in results) == 1
+    assert len(list((tmp_path / ".sdn-delete").glob("*.json"))) == 1
+
+
+@pytest.mark.parametrize("operation", ["check", "begin"])
+def test_different_zone_does_not_bypass_completed_cluster_binding(tmp_path, operation):
+    receipt = success(tmp_path, "begin", payload=evidence())
+    success(tmp_path, "complete", token=receipt["token"])
+    result = invoke(
+        tmp_path,
+        operation,
+        zone="other",
+        cluster_identity=OTHER_CLUSTER_ID,
+        payload=evidence(),
+    )
+    assert result.returncode != 0
+    assert not (tmp_path / ".sdn-delete/other.json").exists()
+
+
+def test_malformed_other_zone_is_not_treated_as_idle(tmp_path):
+    success(tmp_path, "check")
+    other = tmp_path / ".sdn-delete/other.json"
+    other.write_text("{broken")
+    other.chmod(0o600)
+    assert invoke(tmp_path, "check").returncode != 0
+    assert invoke(tmp_path, "begin", payload=evidence()).returncode != 0
+
+
+def test_completed_history_is_validated_before_another_zone_begins(tmp_path):
+    first = success(tmp_path, "begin", payload=evidence())
+    success(tmp_path, "complete", token=first["token"])
+    second = success(tmp_path, "begin", payload=evidence())
+    success(tmp_path, "complete", token=second["token"])
+    assert success(tmp_path, "check", zone="other")["state"] == "absent"
+    archive = next((tmp_path / ".sdn-delete").glob("lab.*.json"))
+    legacy = json.loads(archive.read_text())
+    legacy.pop("cluster_identity", None)
+    legacy["version"] = 1
+    raw = json.dumps(legacy).encode()
+    archive.write_bytes(raw)
+    archive.rename(archive.parent / f"lab.{hashlib.sha256(raw).hexdigest()}.json")
+    assert invoke(tmp_path, "check", zone="other").returncode != 0
+
+
+@pytest.mark.parametrize("zone", ["a", "lab_net", "lab-net"])
+def test_zone_names_follow_the_supported_proxmox_contract(tmp_path, zone):
+    assert invoke(tmp_path, "check", zone=zone).returncode != 0

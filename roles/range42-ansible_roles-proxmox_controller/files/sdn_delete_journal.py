@@ -3,7 +3,12 @@
 Usage: sdn_delete_journal.py {check,begin,phase,complete}, JSON on stdin.
 The caller supplies an absolute, stable operator-owned state ``root`` and
 ``zone``. The same root must be used for every attempt against that cluster;
-per-attempt workspaces cannot provide retry protection. Begin
+per-attempt workspaces cannot provide retry protection. Every mutation also
+requires ``cluster_identity``: ``pve-root-ca-sha256:`` plus the lowercase SHA-256
+fingerprint of the cluster's pve-root-ca.pem certificate. Check may omit that
+identity only for the preliminary incomplete-attempt gate before discovery.
+One root-wide lock and journal scan prevent overlapping deletions across zones.
+Legacy evidence without a cluster identity requires operator review. Begin
 retains ``payload`` and returns a random receipt ``token`` and journal ``path``.
 Phase/complete require that token; optional ``evidence`` is retained privately.
 An incomplete or unreadable journal requires operator review before a retry.
@@ -24,7 +29,9 @@ import time
 
 
 MAX_BYTES = 16 * 1024 * 1024
-MAX_EVENTS = 128
+MAX_EVENTS = 512
+ZONE_PATTERN = r"[A-Za-z][A-Za-z0-9]{1,7}"
+CLUSTER_PATTERN = r"pve-root-ca-sha256:[0-9a-f]{64}"
 DIRECTORY_FLAGS = os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW | os.O_CLOEXEC
 FILE_FLAGS = os.O_NOFOLLOW | os.O_CLOEXEC | os.O_NONBLOCK
 
@@ -96,7 +103,7 @@ def root_directory(root):
 
 
 @contextmanager
-def journal_directory(root, zone):
+def journal_directory(root):
     root_fd = root_directory(root)
     directory_fd = lock_fd = None
     try:
@@ -109,7 +116,7 @@ def journal_directory(root, zone):
         info = os.fstat(directory_fd)
         require(info.st_uid == os.geteuid() and stat.S_IMODE(info.st_mode) == 0o700)
         lock_fd = os.open(
-            f"{zone}.lock",
+            "cluster.lock",
             os.O_RDWR | os.O_CREAT | FILE_FLAGS,
             0o600,
             dir_fd=directory_fd,
@@ -194,16 +201,18 @@ def publish(directory_fd, name, data, *, replace=False):
             os.unlink(temporary, dir_fd=directory_fd)
 
 
-def read_record(directory_fd, zone):
-    raw = read_file(directory_fd, f"{zone}.json")
+def read_record(directory_fd, zone, name):
+    raw = read_file(directory_fd, name)
     if raw is None:
         return None, None
     record = decode(raw)
     require(isinstance(record, dict))
     require(
         type(record.get("version")) is int
-        and record["version"] == 1
+        and record["version"] == 2
         and record.get("zone") == zone
+        and isinstance(record.get("cluster_identity"), str)
+        and re.fullmatch(CLUSTER_PATTERN, record["cluster_identity"])
         and record.get("state") in {"incomplete", "completed"}
         and isinstance(record.get("payload"), dict)
         and record["payload"]
@@ -231,14 +240,53 @@ def read_record(directory_fd, zone):
     return raw, record
 
 
+def inspect_records(directory_fd, zone, cluster_identity, operation):
+    """Validate all active records and completed history while holding one lock."""
+    selected = (None, None)
+    observed_identity = cluster_identity
+    with os.scandir(directory_fd) as entries:
+        for entry in entries:
+            if not entry.name.endswith(".json"):
+                continue
+            match = re.fullmatch(
+                rf"({ZONE_PATTERN})(?:\.([0-9a-f]{{64}}))?\.json", entry.name
+            )
+            require(match is not None)
+            record_zone, archive_hash = match.groups()
+            raw, record = read_record(directory_fd, record_zone, entry.name)
+            require(record is not None)
+            if observed_identity is None:
+                observed_identity = record["cluster_identity"]
+            require(record["cluster_identity"] == observed_identity)
+            if archive_hash is not None:
+                require(
+                    record["state"] == "completed"
+                    and hashlib.sha256(raw).hexdigest() == archive_hash
+                )
+            else:
+                require(
+                    record["state"] == "completed"
+                    or (record_zone == zone and operation in {"phase", "complete"})
+                )
+                if record_zone == zone:
+                    selected = (raw, record)
+    return selected
+
+
 def execute(operation, document):
     require(operation in {"check", "begin", "phase", "complete"})
     require(isinstance(document, dict))
     zone = document.get("zone")
-    require(isinstance(zone, str) and re.fullmatch(r"[A-Za-z][A-Za-z0-9]{0,7}", zone))
+    require(isinstance(zone, str) and re.fullmatch(ZONE_PATTERN, zone))
+    cluster_identity = document.get("cluster_identity")
+    if operation != "check" or "cluster_identity" in document:
+        require(
+            isinstance(cluster_identity, str)
+            and re.fullmatch(CLUSTER_PATTERN, cluster_identity)
+        )
     root = document.get("root")
-    with journal_directory(root, zone) as directory_fd:
-        raw, record = read_record(directory_fd, zone)
+    with journal_directory(root) as directory_fd:
+        raw, record = inspect_records(directory_fd, zone, cluster_identity, operation)
         path = f"{root}/.sdn-delete/{zone}.json"
         if operation == "check":
             require(record is None or record["state"] == "completed")
@@ -248,8 +296,9 @@ def execute(operation, document):
             require(record is None or record["state"] == "completed")
             token = secrets.token_hex(32)
             created = {
-                "version": 1,
+                "version": 2,
                 "zone": zone,
+                "cluster_identity": cluster_identity,
                 "state": "incomplete",
                 "phase": "prepared",
                 "token_hash": hashlib.sha256(token.encode()).hexdigest(),
