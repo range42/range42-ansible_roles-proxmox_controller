@@ -7,6 +7,7 @@ from collections import Counter
 import ipaddress
 import json
 import shlex
+import socket
 import subprocess
 import sys
 
@@ -18,13 +19,24 @@ def iptables(*arguments):
     ).stdout
 
 
-def read_rules():
+def read_table():
     table = iptables("-S", "POSTROUTING")
     if len(table) > 8 * 1024 * 1024:
         raise ValueError("NAT table exceeds audit bound")
     result = []
     for line in table.splitlines():
+        if not line.strip():
+            continue
         arguments = shlex.split(line)
+        if arguments[:2] not in (["-A", "POSTROUTING"], ["-P", "POSTROUTING"]):
+            raise ValueError("Unexpected POSTROUTING table entry")
+        result.append(arguments)
+    return result
+
+
+def parse_rules(table):
+    result = []
+    for arguments in table:
         if arguments[:2] != ["-A", "POSTROUTING"]:
             continue
         fields = {}
@@ -55,7 +67,84 @@ def read_rules():
     return result
 
 
+def read_rules():
+    return parse_rules(read_table())
+
+
+def restore_snapshot(document):
+    """Delete only appended duplicate NAT identities; preserve old rule positions.
+
+    Scoped changes refuse unknown non-target drift. Explicit standalone apply
+    may retain new NAT identities introduced by its pending configuration.
+    Every numbered deletion rechecks the complete table, but independent writers
+    must still coordinate: iptables locks each command, not this whole sequence.
+    """
+    snapshot = document.get("snapshot")
+    if not isinstance(snapshot, dict) or snapshot.get("version") != 1 or snapshot.get("node") != socket.gethostname():
+        raise ValueError("Snapshot is invalid or belongs to a different node")
+    before = snapshot.get("rules")
+    if not isinstance(before, list) or len(before) > 100000 or any(
+        not isinstance(row, list) or not all(isinstance(value, str) for value in row)
+        or row[:2] not in (["-A", "POSTROUTING"], ["-P", "POSTROUTING"])
+        for row in before
+    ):
+        raise ValueError("Invalid snapshot rule arguments")
+    excluded = document.get("excluded_sources", [])
+    if not isinstance(excluded, list) or len(excluded) > 64 or not all(isinstance(source, str) for source in excluded):
+        raise ValueError("Invalid excluded source list")
+    excluded = {str(ipaddress.IPv4Network(source, strict=True)) for source in excluded}
+    allow_new = document.get("allow_new_rules", False)
+    if type(allow_new) is not bool:
+        raise ValueError("New rule policy must be explicit")
+
+    def protected(table):
+        nat = {tuple(rule["argv"]): rule["source"] for rule in parse_rules(table)}
+        return [(index, row) for index, row in enumerate(table) if nat.get(tuple(row)) not in excluded]
+
+    original = [row for _, row in protected(before)]
+    current = read_table()
+    observed = protected(current)
+    if [row for _, row in observed[:len(original)]] != original:
+        raise ValueError("Non-target rules were removed, reordered or inserted")
+    known_nat = {tuple(rule["argv"]) for rule in parse_rules(original)}
+    delete = []
+    retained = 0
+    for index, row in observed[len(original):]:
+        if tuple(row) in known_nat:
+            delete.append(index)
+        elif allow_new and parse_rules([row]):
+            retained += 1
+        else:
+            raise ValueError("Unexpected new non-target rule; preserve for operator review")
+    if len(delete) > 1000:
+        raise ValueError("Deletion limit exceeded")
+    for index in reversed(delete):
+        if read_table() != current:
+            raise ValueError("NAT table changed concurrently; no further cleanup")
+        number = sum(row[:2] == ["-A", "POSTROUTING"] for row in current[:index + 1])
+        iptables("-D", "POSTROUTING", str(number))
+        del current[index]
+    if read_table() != current:
+        raise ValueError("NAT cleanup readback differs; inspect live state")
+    return {"deleted": len(delete), "retained_new_rules": retained,
+            "original_non_target_rules": len(original), "preserved": True}
+
+
 def main(arguments):
+    if arguments == ["snapshot"]:
+        table = read_table()
+        counts = dict(Counter(rule["source"] for rule in parse_rules(table)))
+        print(json.dumps({"version": 1, "node": socket.gethostname(), "rules": table, "nat_counts": counts}))
+        return
+    if arguments == ["restore"]:
+        document = sys.stdin.read(16 * 1024 * 1024 + 1)
+        if len(document) > 16 * 1024 * 1024:
+            raise ValueError("Snapshot exceeds audit bound")
+        document = json.loads(document)
+        if not isinstance(document, dict):
+            raise ValueError("Invalid snapshot document")
+        print(json.dumps(restore_snapshot(document)))
+        return
     if arguments == ["list"]:
         counts = Counter((rule["source"], rule["out"], rule["target"]) for rule in read_rules())
         for (source, out, target), count in sorted(counts.items()):

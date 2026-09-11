@@ -1,0 +1,78 @@
+---
+# Capture exact rule identities before a global apply and remove only its known
+# appended duplicates afterward. Full snapshots stay out of Ansible event output.
+- block:
+    - name: NETWORK - SNAT PRESERVATION - REQUIRE THE NODE SSH TARGET
+      ansible.builtin.assert:
+        that:
+          - groups['proxmox_cli'] is defined
+          - (groups['proxmox_cli'] | default([]) | length) == 1
+        fail_msg: SNAT preservation requires exactly one explicit proxmox_cli host.
+
+    - name: NETWORK - SNAT PRESERVATION - SNAPSHOT THE COMPLETE TABLE
+      ansible.builtin.command:
+        argv:
+          - python3
+          - -c
+          - "{{ lookup('file', role_path ~ '/files/snat_rules.py') }}"
+          - snapshot
+      environment:
+        PATH: /usr/sbin:/sbin:/usr/bin:/bin
+      delegate_to: "{{ groups['proxmox_cli'] | first }}"
+      register: proxmox_snat_snapshot_read
+      changed_when: false
+      failed_when: false
+      no_log: true
+      when: proxmox_vm_action == 'network_snapshot_snat_rules'
+
+    - name: NETWORK - SNAT PRESERVATION - REQUIRE A SUCCESSFUL SNAPSHOT
+      ansible.builtin.assert:
+        that: proxmox_snat_snapshot_read.rc == 0
+        fail_msg: The NAT snapshot could not be read; no network write is authorized.
+      when: proxmox_vm_action == 'network_snapshot_snat_rules'
+
+    - name: NETWORK - SNAT PRESERVATION - RETAIN THE PRIVATE SNAPSHOT
+      ansible.builtin.set_fact:
+        network_snat_snapshot: "{{ proxmox_snat_snapshot_read.stdout | from_json }}"
+      no_log: true
+      when: proxmox_vm_action == 'network_snapshot_snat_rules'
+
+    - name: NETWORK - SNAT PRESERVATION - VERIFY THE ACTUAL NODE
+      ansible.builtin.assert:
+        that:
+          - network_snat_snapshot is defined
+          - network_snat_snapshot.version == 1
+          - network_snat_snapshot.node.split('.')[0] == proxmox_node
+        fail_msg: The NAT snapshot must belong to the requested Proxmox node.
+
+    - name: NETWORK - SNAT PRESERVATION - REMOVE ONLY VERIFIED APPENDED DUPLICATES
+      ansible.builtin.command:
+        argv:
+          - python3
+          - -c
+          - "{{ lookup('file', role_path ~ '/files/snat_rules.py') }}"
+          - restore
+        stdin: "{{ {'snapshot': network_snat_snapshot, 'excluded_sources': sdn_snat_excluded_sources | default([]), 'allow_new_rules': sdn_snat_allow_new_rules | default(false)} | to_json }}"
+      environment:
+        PATH: /usr/sbin:/sbin:/usr/bin:/bin
+      delegate_to: "{{ groups['proxmox_cli'] | first }}"
+      register: proxmox_snat_preservation_result
+      changed_when: proxmox_snat_preservation_result.rc == 0 and (proxmox_snat_preservation_result.stdout | from_json).deleted > 0
+      failed_when: false
+      no_log: true
+      when: proxmox_vm_action == 'network_restore_snat_snapshot'
+
+    - name: NETWORK - SNAT PRESERVATION - REQUIRE VERIFIED COMPLETION
+      ansible.builtin.assert:
+        that: proxmox_snat_preservation_result.rc == 0
+        fail_msg: >-
+          SNAT preservation did not finish. The table identity, node or command
+          access could not be verified. Apply may already have completed;
+          inspect the node before retrying. Raw rules remain private.
+      when: proxmox_vm_action == 'network_restore_snat_snapshot'
+
+    - name: NETWORK - SNAT PRESERVATION - REPORT COUNTS WITHOUT RULE CONTENT
+      ansible.builtin.set_fact:
+        network_restore_snat_snapshot: "{{ (proxmox_snat_preservation_result.stdout | from_json) | combine({'action': 'network_restore_snat_snapshot', 'proxmox_node': proxmox_node, 'snat_rule_preservation': 'exact_appended_duplicates_v1'}) }}"
+      when: proxmox_vm_action == 'network_restore_snat_snapshot'
+  when: proxmox_vm_action in ['network_snapshot_snat_rules', 'network_restore_snat_snapshot']
