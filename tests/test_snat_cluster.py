@@ -19,6 +19,7 @@ def request():
         "status": [
             {"type": "node", "name": "pve1", "online": 1},
             {"type": "node", "name": "pve2", "online": 1},
+            {"type": "cluster", "name": "fixture", "nodes": 2, "quorate": 1},
         ],
         "primary_node": "pve1",
         "node_hosts": {"pve1": "ssh1", "pve2": "ssh2"},
@@ -103,7 +104,7 @@ def test_incomplete_or_ambiguous_cluster_coverage_is_rejected(mutation):
     if mutation == "invalid_status":
         document["status"] = {"error": "permission denied"}
     if mutation == "no_quorum":
-        document["status"].append({"type": "cluster", "quorate": 0, "nodes": 2})
+        document["status"][-1]["quorate"] = 0
     assert invoke(document).returncode != 0
 
 
@@ -255,3 +256,33 @@ def test_failed_wrong_node_ambiguous_or_malformed_worker_does_not_prove_completi
         ).returncode
         != 0
     )
+
+
+INVALID_CLUSTER_ROWS = [
+    [],
+    [{"type": "cluster", "nodes": 2}],
+    [{"type": "cluster", "nodes": 2, "quorate": 1}] * 2,
+    [{"type": "cluster", "nodes": 2, "quorate": 0}],
+    [{"type": "cluster", "nodes": 2, "quorate": 1.0}],
+    [{"type": "cluster", "nodes": 2.0, "quorate": 1}],
+    [{"type": "cluster", "nodes": 3, "quorate": 1}],
+]
+
+
+@pytest.mark.parametrize(
+    "cluster_rows",
+    INVALID_CLUSTER_ROWS,
+    ids=[
+        "missing",
+        "incomplete",
+        "duplicate",
+        "nonquorate",
+        "float-quorum",
+        "float-nodes",
+        "wrong-count",
+    ],
+)
+def test_multiple_nodes_require_one_usable_quorum_record(cluster_rows):
+    document = request()
+    document["status"] = document["status"][:2] + cluster_rows
+    assert invoke(document).returncode != 0

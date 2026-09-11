@@ -106,6 +106,10 @@ def run_cluster(
         "polls": str(tmp_path / "polls"),
         "worker_marker": str(tmp_path / "worker-"),
     }
+    if not single_node:
+        document["status"].append(
+            {"type": "cluster", "name": "fixture", "nodes": len(indices), "quorate": 1}
+        )
     api_fixture = tmp_path / "api.json"
     api_fixture.write_text(json.dumps(document))
 

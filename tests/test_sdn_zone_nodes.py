@@ -19,13 +19,19 @@ from cryptography.x509.oid import NameOID
 import pytest
 import yaml
 
+from test_snat_cluster import INVALID_CLUSTER_ROWS
+
 ROOT = Path(__file__).resolve().parents[1]
 ROLE = ROOT / "roles/range42-ansible_roles-proxmox_controller"
 NODES = ["pve1", "pve2"]
 
 
 @contextmanager
-def zone_api(tmp_path):
+def zone_api(tmp_path, *, status=None):
+    if status is None:
+        status = [{"type": "node", "name": node, "online": 1} for node in NODES] + [
+            {"type": "cluster", "name": "fixture", "nodes": len(NODES), "quorate": 1}
+        ]
     key = ec.generate_private_key(ec.SECP256R1())
     name = x509.Name([x509.NameAttribute(NameOID.COMMON_NAME, "localhost")])
     certificate = (
@@ -71,9 +77,7 @@ def zone_api(tmp_path):
             if self.path != "/api2/json/cluster/status":
                 self.respond({}, 404)
                 return
-            self.respond(
-                [{"type": "node", "name": node, "online": 1} for node in NODES]
-            )
+            self.respond(status)
 
         def do_POST(self):
             assert self.path == "/api2/json/cluster/sdn/zones"
@@ -189,3 +193,37 @@ def test_zone_post_rejects_membership_changed_since_verified_snapshot(tmp_path):
         result = run_zone(tmp_path, host, ca, ["pve2"], saved=["pve1"])
     assert result.returncode != 0
     assert calls == []
+
+
+@pytest.mark.parametrize(
+    "cluster_rows",
+    INVALID_CLUSTER_ROWS,
+    ids=[
+        "missing",
+        "incomplete",
+        "duplicate",
+        "nonquorate",
+        "float-quorum",
+        "float-nodes",
+        "wrong-count",
+    ],
+)
+def test_zone_post_requires_complete_multinode_quorum_evidence(tmp_path, cluster_rows):
+    status = [
+        {"type": "node", "name": node, "online": 1} for node in NODES
+    ] + cluster_rows
+    with zone_api(tmp_path, status=status) as (host, ca, calls):
+        result = run_zone(tmp_path, host, ca, ["pve2"])
+    assert result.returncode != 0
+    assert calls == []
+
+
+def test_standalone_zone_creation_needs_no_cluster_record(tmp_path):
+    with zone_api(tmp_path, status=[{"type": "node", "name": "pve1", "online": 1}]) as (
+        host,
+        ca,
+        calls,
+    ):
+        result = run_zone(tmp_path, host, ca, None)
+    assert result.returncode == 0, result.stdout[-4000:] + result.stderr
+    assert calls == [{"zone": "lab", "type": "simple"}]

@@ -61,8 +61,16 @@ def cluster_nodes(status):
     ):
         raise ValueError("Every cluster node must be online exactly once")
     clusters = [row for row in status if row["type"] == "cluster"]
-    if len(clusters) > 1 or any(
-        row.get("quorate") != 1 or row.get("nodes") != len(nodes) for row in clusters
+    if (
+        len(clusters) > 1
+        or (len(nodes) > 1 and len(clusters) != 1)
+        or any(
+            type(row.get("quorate")) not in (int, bool)
+            or row["quorate"] != 1
+            or type(row.get("nodes")) is not int
+            or row["nodes"] != len(nodes)
+            for row in clusters
+        )
     ):
         raise ValueError("Cluster membership or quorum is incomplete")
     return nodes, clusters

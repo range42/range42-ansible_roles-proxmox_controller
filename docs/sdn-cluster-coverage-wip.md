@@ -121,6 +121,36 @@ source membership: list and empty inputs failed before the fix; all three now
 pass in 30.00 seconds (`/tmp/r42-paired-zone-green.log`). This is local request
 validation only; no live zone was created. Previous activation limits remain.
 
+## Missing-quorum evidence correction
+
+Review of the reused cluster validator found that two online node rows without
+any cluster row could pass, so those responses did not prove quorum. The shared
+validator now requires exactly one cluster record for a multi-node deployment,
+a boolean/integer true quorum value, and an integer node count matching the
+complete node inventory. Missing, incomplete, duplicate, nonquorate, wrongly
+typed or count-mismatched records are refused. One standalone node may still
+have no cluster record. The same validator guards planning, snapshot/apply/
+reconciliation revalidation and zone creation.
+
+Fixtures now return a complete cluster record for multi-node success cases.
+Negative request tests explicitly omit or corrupt that record. Before the fix,
+six planner/request cases failed (missing quorum evidence and accepted floating
+point quorum/node-count values), while ten focused checks passed. A separate
+paired bootstrap regression showed zone POST could proceed after fresh quorum
+evidence disappeared. Red logs: `/tmp/r42-quorum-red.log` and
+`/tmp/r42-paired-quorum-red.log`. The final affected command passed 82 checks
+in 272.46 seconds: 36 planner cases, 19 actual TLS zone-request cases, and all
+27 existing real-Ansible snapshot/apply/reconcile cases. Log:
+`/tmp/r42-quorum-green.log`. All 18 affected paired/composite checks passed in
+113.57 seconds (`/tmp/r42-paired-quorum-green.log`). Scoped Ruff/formatting and
+whitespace checks passed; independent review found no further issue. The existing
+pytest asyncio configuration warning remains. No live calls were performed.
+
+The zone wire schema uses the `pve-node-list` string option in
+[Proxmox JSONSchema.pm](https://github.com/proxmox/pve-common/blob/master/src/PVE/JSONSchema.pm),
+consumed by the `nodes` property in
+[the SDN zone plugin](https://github.com/proxmox/pve-network/blob/master/src/PVE/Network/SDN/Zones/Plugin.pm).
+
 ## Required next implementation
 
 1. Completed for the five bootstrap/internet/apply composites in the paired
