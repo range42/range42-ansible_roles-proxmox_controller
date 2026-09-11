@@ -219,6 +219,45 @@ source URLs and subsequent trace results belong in the paired playbooks
 `docs/sdn-delete-all-source-checkpoint.md`. No mutation or runtime activation
 has been authorized by these source tests.
 
+## Bounded deletion collector performance follow-up
+
+A second read-only trace of the frozen collector confirmed cumulative command
+startup overhead: 64 commands, first guest read at 27.166s, roughly 1.9–2.0s per
+QEMU current/pending request, and the last request starting at 119.694s exhausted
+the unchanged overall 120s deadline. Trace evidence belongs to the root at
+`/tmp/r42-sdn-delete-readonly-20260911/trace-result.json`. Neither failed probe
+accepted a scope or performed a declaration/rule/guest write.
+
+The collector now uses one complete `/pending` response per QEMU guest, retaining
+current values, candidate values and deletion flags. LXC still requires both
+`/config?current=1` and `/pending`: the official
+[GuestHelpers implementation](https://raw.githubusercontent.com/proxmox/pve-guest-common/master/src/PVE/GuestHelpers.pm)
+explicitly omits reference-valued current fields, including raw LXC arrays, from
+its pending array. Current/candidate `netN`, QEMU arguments and raw LXC guards
+remain enforced; malformed/duplicate pending keys and JSON object keys refuse.
+The final guest roster reread remains mandatory.
+
+Guest requests run in fixed batches of at most two subprocesses, launched from
+the main thread. There are no worker threads around `preexec_fn`. Existing
+private output files, file-size limit and process-group isolation are reused.
+`waitid(...WNOWAIT)` retains each leader's identity until group cleanup and
+reaping, including an already-exited failing sibling. A failed read or timeout
+stops both process groups and reaps owned children. Successful read groups also
+cannot leave background descendants. The limits remain 10s per command, 120s
+overall, 4MiB output per command and 16MiB aggregate output.
+
+Ten focused regressions failed before this change: redundant QEMU current
+reads, lack of two-read overlap, failed/timeout sibling coverage and malformed
+pending proof. Final actual handle67821 passed 63 collector/scope/real-role
+checks in 37.16s (`/tmp/r42-delete-batch-final.log`). Actual handle76091 passed
+both affected paired success/partial-retry cases in 49.50s, with 7 deselected
+(`/tmp/r42-delete-batch-paired.log`). Scoped Ruff and whitespace checks pass.
+The frozen candidate helper SHA256 is
+`7a442df958f096f7284d4dfd0a1d2a49d48f1d6082c547795ef417f503887835`.
+These local results are not a passing live probe; the root must review and
+repeat the bounded read-only collector before claiming real-target compatibility.
+No mutation acceptance, installer integration or automatic recovery is implied.
+
 ## Required next implementation
 
 1. Completed for the five bootstrap/internet/apply composites in the paired

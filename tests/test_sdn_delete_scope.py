@@ -241,3 +241,32 @@ def test_reordered_api_rows_preserve_identical_deletion_scope():
     assert json.loads(invoke(before, "delete-scope").stdout) == json.loads(
         invoke(shuffled, "delete-scope").stdout
     )
+
+
+@pytest.mark.parametrize(
+    "fault",
+    [
+        "duplicate_key",
+        "bad_key",
+        "unknown_property",
+        "bad_delete",
+        "bool_delete",
+        "empty_qemu",
+    ],
+)
+def test_malformed_complete_pending_configuration_is_rejected(fault):
+    request = document()
+    pending = request["guest_configs"]["qemu/100"]["pending"]
+    if fault == "duplicate_key":
+        pending.append(dict(pending[0]))
+    elif fault == "bad_key":
+        pending[0]["key"] = "net0,bridge=target"
+    elif fault == "unknown_property":
+        pending[0]["new_unreadable"] = "target"
+    elif fault == "bad_delete":
+        pending[0]["delete"] = "1"
+    elif fault == "bool_delete":
+        pending[0]["delete"] = True
+    elif fault == "empty_qemu":
+        pending.clear()
+    assert invoke(request, "delete-scope").returncode != 0

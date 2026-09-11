@@ -1,5 +1,6 @@
 """Bounded, read-only planning for cluster-wide NAT preservation."""
 
+from contextlib import ExitStack
 import hashlib
 import ipaddress
 import json
@@ -229,52 +230,105 @@ def read_delete(document):
     deadline = time.monotonic() + 120
     total_output = 0
 
-    def command(argv):
+    def commands(arguments):
+        """Run one or two reads from this thread, retaining child identity until cleanup."""
         nonlocal total_output
-        remaining = deadline - time.monotonic()
-        if remaining <= 0:
-            raise ValueError("Deletion inventory exceeded its overall read deadline")
+        if not 1 <= len(arguments) <= 2:
+            raise ValueError("Deletion inventory batches contain at most two reads")
 
-        # Cap output before parsing or allocating it in memory, including a
-        # misbehaving child. The temporary file is private and unlinked on exit.
         def limit_output():
             resource.setrlimit(
                 resource.RLIMIT_FSIZE, (4 * 1024 * 1024, 4 * 1024 * 1024)
             )
 
-        with tempfile.TemporaryFile() as output:
+        with ExitStack() as files:
+            running = []
             try:
-                with subprocess.Popen(
-                    argv,
-                    stdout=output,
-                    stderr=subprocess.DEVNULL,
-                    preexec_fn=limit_output,
-                    start_new_session=True,
-                ) as process:
-                    try:
-                        code = process.wait(timeout=min(10, remaining))
-                    except subprocess.TimeoutExpired as exc:
-                        # The still-owned unreaped child identifies this process
-                        # group; kill any pvesh SSH descendants before reaping.
-                        os.killpg(process.pid, signal.SIGKILL)
-                        process.wait()
+                for argv in arguments:
+                    started = time.monotonic()
+                    if started >= deadline:
                         raise ValueError(
-                            "Deletion inventory command timed out"
-                        ) from exc
-                if code != 0:
-                    raise ValueError("Deletion inventory read failed")
+                            "Deletion inventory exceeded its overall read deadline"
+                        )
+                    output = files.enter_context(tempfile.TemporaryFile())
+                    process = subprocess.Popen(
+                        argv,
+                        stdout=output,
+                        stderr=subprocess.DEVNULL,
+                        preexec_fn=limit_output,
+                        start_new_session=True,
+                    )
+                    running.append(
+                        {
+                            "process": process,
+                            "output": output,
+                            "deadline": min(deadline, started + 10),
+                            "finished": False,
+                        }
+                    )
+                while not all(entry["finished"] for entry in running):
+                    for entry in running:
+                        if entry["finished"]:
+                            continue
+                        if time.monotonic() >= entry["deadline"]:
+                            raise ValueError("Deletion inventory command timed out")
+                        # WNOWAIT keeps even an exited leader unreaped. Its PID
+                        # cannot be reused before we stop its entire process group.
+                        status = os.waitid(
+                            os.P_PID,
+                            entry["process"].pid,
+                            os.WEXITED | os.WNOHANG | os.WNOWAIT,
+                        )
+                        if status is not None:
+                            if status.si_code != os.CLD_EXITED or status.si_status != 0:
+                                raise ValueError("Deletion inventory read failed")
+                            entry["finished"] = True
+                    if not all(entry["finished"] for entry in running):
+                        time.sleep(0.01)
+                result = []
+                for entry in running:
+                    entry["output"].seek(0)
+                    raw = entry["output"].read(4 * 1024 * 1024 + 1)
+                    if len(raw) > 4 * 1024 * 1024:
+                        raise ValueError("Deletion inventory output is too large")
+                    total_output += len(raw)
+                    if total_output > 16 * 1024 * 1024:
+                        raise ValueError(
+                            "Deletion inventory exceeded its aggregate output limit"
+                        )
+                    result.append(raw.decode("utf-8"))
+                return result
             except OSError as exc:
                 raise ValueError("Deletion inventory command is unavailable") from exc
-            output.seek(0)
-            raw = output.read(4 * 1024 * 1024 + 1)
-            if len(raw) > 4 * 1024 * 1024:
-                raise ValueError("Deletion inventory output is too large")
-            total_output += len(raw)
-            if total_output > 16 * 1024 * 1024:
-                raise ValueError(
-                    "Deletion inventory exceeded its aggregate output limit"
-                )
-            return raw.decode("utf-8")
+            finally:
+                # Failure of either read stops both siblings and descendants;
+                # successful commands must not leave background read children.
+                for entry in running:
+                    try:
+                        os.killpg(entry["process"].pid, signal.SIGKILL)
+                    except ProcessLookupError:
+                        pass
+                for entry in running:
+                    entry["process"].wait()
+
+    def command(argv):
+        return commands([argv])[0]
+
+    def decode(raw):
+        def unique_object(pairs):
+            value = {}
+            for key, item in pairs:
+                if key in value:
+                    raise ValueError("Duplicate JSON keys in deletion inventory")
+                value[key] = item
+            return value
+
+        def invalid_constant(_value):
+            raise ValueError("Invalid JSON constant in deletion inventory")
+
+        return json.loads(
+            raw, object_pairs_hook=unique_object, parse_constant=invalid_constant
+        )
 
     node = document.get("node")
     if not isinstance(node, str) or not re.fullmatch(
@@ -288,7 +342,7 @@ def read_delete(document):
         raise ValueError("Deletion inventory requires root on the exact mapped node")
 
     def get(path, *options):
-        return json.loads(
+        return decode(
             command(["pvesh", "get", path, *options, "--output-format", "json"])
         )
 
@@ -359,6 +413,7 @@ def read_delete(document):
     if not isinstance(guests, list) or len(guests) > 4096:
         raise ValueError("Guest inventory is incomplete or excessive")
     configs = {}
+    reads = []
     for guest in guests:
         if (
             not isinstance(guest, dict)
@@ -372,10 +427,37 @@ def read_delete(document):
         if key in configs:
             raise ValueError("Duplicate guest identity")
         path = f"/nodes/{guest['node']}/{key}"
-        configs[key] = {
-            "current": get(path + "/config", "--current", "1"),
-            "pending": get(path + "/pending"),
-        }
+        configs[key] = {"current": {}}
+        # /pending includes every scalar current value, candidate and deletion.
+        # Raw LXC arrays are omitted by GuestHelpers, so LXC keeps /config too.
+        if guest["type"] == "lxc":
+            reads.append(
+                (
+                    key,
+                    "current",
+                    [
+                        "pvesh",
+                        "get",
+                        path + "/config",
+                        "--current",
+                        "1",
+                        "--output-format",
+                        "json",
+                    ],
+                )
+            )
+        reads.append(
+            (
+                key,
+                "pending",
+                ["pvesh", "get", path + "/pending", "--output-format", "json"],
+            )
+        )
+    for offset in range(0, len(reads), 2):
+        batch = reads[offset : offset + 2]
+        values = commands([entry[2] for entry in batch])
+        for (key, field, _), raw in zip(batch, values):
+            configs[key][field] = decode(raw)
     # Discovery must remain stable while all configuration reads are completed.
     after = get("/cluster/resources", "--type", "vm")
 
@@ -542,9 +624,29 @@ def delete_scope(document):
         if not isinstance(config, dict) or not isinstance(config.get("current"), dict):
             raise ValueError("Every guest needs current and pending configuration")
         definitions = list(config["current"].items())
-        for pending in rows(config.get("pending")):
-            if not isinstance(pending.get("key"), str):
-                raise ValueError("Malformed pending guest configuration")
+        pending_rows = rows(config.get("pending"))
+        if guest["type"] == "qemu" and not pending_rows:
+            raise ValueError(
+                "A QEMU pending response must include its current configuration"
+            )
+        seen_keys = set()
+        for pending in pending_rows:
+            option = pending.get("key")
+            if (
+                not isinstance(option, str)
+                or not re.fullmatch(r"[A-Za-z][A-Za-z0-9_.-]{0,127}", option)
+                or option in seen_keys
+                or not set(pending) <= {"key", "value", "pending", "delete"}
+                or (
+                    "delete" in pending
+                    and (
+                        type(pending["delete"]) is not int
+                        or pending["delete"] not in (0, 1, 2)
+                    )
+                )
+            ):
+                raise ValueError("Malformed or duplicate pending guest configuration")
+            seen_keys.add(option)
             definitions.extend(
                 (pending["key"], pending[name])
                 for name in ("value", "pending")
