@@ -55,14 +55,25 @@ def fake(tmp_path):
     binary = tmp_path / "iptables"
     binary.write_text(
         f"#!{sys.executable}\n"
-        + """import json, os, pathlib, shlex, sys
+        + """import fcntl, json, os, pathlib, shlex, sys, time
 state=pathlib.Path(os.environ['R42_RULES']); counter=pathlib.Path(os.environ['R42_READS']); writes=pathlib.Path(os.environ['R42_WRITES'])
-args=sys.argv[1:]; assert args[:4]==['-w','5','-t','nat']; args=args[4:]
+args=sys.argv[1:]
+if args==['--version']:
+ print(os.environ.get('R42_IPTABLES_VERSION', 'iptables v1.8.9 (legacy)'));sys.exit(0)
+lock=open(os.environ['XTABLES_LOCKFILE'], 'a');fcntl.flock(lock, fcntl.LOCK_EX)
+assert args[:4]==['-w','5','-t','nat']; args=args[4:]
 rules=json.loads(state.read_text())
 if args==['-S','POSTROUTING']:
  count=int(counter.read_text())+1; counter.write_text(str(count))
  if str(count)==os.environ.get('R42_CHANGE_AT_READ'):
   rules.append(['-A','POSTROUTING','-j','ACCEPT']);state.write_text(json.dumps(rules))
+ if str(count)==os.environ.get('R42_PAUSE_AT_READ'):
+  fcntl.flock(lock, fcntl.LOCK_UN)
+  pathlib.Path(os.environ['R42_READY']).touch()
+  deadline=time.monotonic()+5
+  while not pathlib.Path(os.environ['R42_ATTEMPT']).exists():
+   assert time.monotonic()<deadline;time.sleep(0.01)
+  time.sleep(0.2)
  print('\\n'.join(shlex.join(row) for row in rules))
 elif args[:2]==['-D','POSTROUTING']:
  assert len(args)==3 and args[2].isdigit(), 'Preservation must delete the appended position, not the first matching rule'
@@ -78,6 +89,7 @@ else: raise AssertionError(args)
         "R42_RULES": str(state),
         "R42_READS": str(counter),
         "R42_WRITES": str(writes),
+        "XTABLES_LOCKFILE": str(tmp_path / "xtables.lock"),
     }
     return state, writes, env
 

@@ -4,12 +4,62 @@ iptables -S uses shell quoting. Parse it with shlex, preserve original argument
 boundaries for deletion, and never evaluate rule text as a shell command.
 """
 from collections import Counter
+from contextlib import contextmanager
+import fcntl
 import ipaddress
 import json
+import os
 import shlex
 import socket
+import stat
 import subprocess
 import sys
+import tempfile
+import time
+
+
+@contextmanager
+def legacy_transaction():
+    """Serialize a complete table operation with cooperating legacy writers.
+
+    Child iptables commands use a separate private lock to avoid deadlocking on
+    the lock held by this process. nft ignores --wait and cannot safely use the
+    positional restore algorithm, so reject it before snapshotting/applying.
+    """
+    version = subprocess.run(["iptables", "--version"], check=True,
+                             capture_output=True, text=True, timeout=5).stdout.strip()
+    if not version.startswith("iptables v") or not version.endswith(" (legacy)"):
+        raise ValueError("Exact preservation requires iptables-legacy")
+    original = os.environ.get("XTABLES_LOCKFILE")
+    path = original or "/run/xtables.lock"
+    descriptor = os.open(path, os.O_CREAT | os.O_RDONLY | os.O_NOFOLLOW | os.O_CLOEXEC, 0o600)
+    try:
+        opened = os.fstat(descriptor)
+        if not stat.S_ISREG(opened.st_mode):
+            raise ValueError("The xtables lock must be a regular file")
+        deadline = time.monotonic() + 5
+        while True:
+            try:
+                fcntl.flock(descriptor, fcntl.LOCK_EX | fcntl.LOCK_NB)
+                break
+            except BlockingIOError:
+                if time.monotonic() >= deadline:
+                    raise ValueError("The xtables lock is busy") from None
+                time.sleep(0.05)
+        current = os.stat(path, follow_symlinks=False)
+        if (opened.st_dev, opened.st_ino) != (current.st_dev, current.st_ino):
+            raise ValueError("The xtables lock path changed")
+        with tempfile.TemporaryDirectory(prefix="range42-xtables-") as directory:
+            os.environ["XTABLES_LOCKFILE"] = os.path.join(directory, "child.lock")
+            try:
+                yield
+            finally:
+                if original is None:
+                    os.environ.pop("XTABLES_LOCKFILE", None)
+                else:
+                    os.environ["XTABLES_LOCKFILE"] = original
+    finally:
+        os.close(descriptor)
 
 
 def iptables(*arguments):
@@ -76,8 +126,7 @@ def restore_snapshot(document):
 
     Scoped changes refuse unknown non-target drift. Explicit standalone apply
     may retain new NAT identities introduced by its pending configuration.
-    Every numbered deletion rechecks the complete table, but independent writers
-    must still coordinate: iptables locks each command, not this whole sequence.
+    The caller holds the conventional xtables lock through all checks/deletions.
     """
     snapshot = document.get("snapshot")
     if not isinstance(snapshot, dict) or snapshot.get("version") != 1 or snapshot.get("node") != socket.gethostname():
@@ -132,7 +181,8 @@ def restore_snapshot(document):
 
 def main(arguments):
     if arguments == ["snapshot"]:
-        table = read_table()
+        with legacy_transaction():
+            table = read_table()
         counts = dict(Counter(rule["source"] for rule in parse_rules(table)))
         print(json.dumps({"version": 1, "node": socket.gethostname(), "rules": table, "nat_counts": counts}))
         return
@@ -143,7 +193,9 @@ def main(arguments):
         document = json.loads(document)
         if not isinstance(document, dict):
             raise ValueError("Invalid snapshot document")
-        print(json.dumps(restore_snapshot(document)))
+        with legacy_transaction():
+            result = restore_snapshot(document)
+        print(json.dumps(result))
         return
     if arguments == ["list"]:
         counts = Counter((rule["source"], rule["out"], rule["target"]) for rule in read_rules())
