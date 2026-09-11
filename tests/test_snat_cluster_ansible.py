@@ -33,13 +33,21 @@ def run_cluster(
     wrong_host=False,
     delayed=False,
     failed=False,
+    missing=False,
+    ambiguous=False,
+    actions=None,
+    denied_audit=False,
+    intervening_reload=False,
+    intervening_before_put=False,
+    single_node=False,
 ):
     role = tmp_path / "roles/range42-ansible_roles-proxmox_controller"
     (role / "tasks/include/network").mkdir(parents=True)
     shutil.copytree(ROLE / "files", role / "files")
     fixtures = {}
     hosts = {}
-    for index in (1, 2):
+    indices = (1,) if single_node else (1, 2)
+    for index in indices:
         node = f"pve{index}"
         directory = tmp_path / node
         directory.mkdir()
@@ -47,9 +55,19 @@ def run_cluster(
         state.write_text(json.dumps([UNRELATED, OTHER_RULE, TARGET_RULE]))
         environment["R42_TEST_NODE"] = "wrong" if wrong_host and index == 2 else node
         environment["R42_ALLOW_EXACT"] = "1"
+        environment["R42_READY_NODES"] = json.dumps(
+            [str(tmp_path / f"worker-pve{i}") for i in indices]
+        )
+        binary = directory / "iptables"
+        binary.write_text(
+            binary.read_text().replace(
+                "elif args[:2]==['-D','POSTROUTING']:",
+                "elif args[:2]==['-D','POSTROUTING']:\n assert all(pathlib.Path(path).exists() for path in json.loads(os.environ['R42_READY_NODES'])), 'cleanup preceded complete node reloads'",
+            )
+        )
         shim = directory / "python3"
         shim.write_text(
-            f"#!{sys.executable}\nimport os,socket,sys\nsocket.gethostname=lambda:os.environ['R42_TEST_NODE']\nexec(sys.argv[2])\n"
+            f"#!{sys.executable}\nimport os,socket,sys\nsocket.gethostname=lambda:os.environ['R42_TEST_NODE']\ncode=sys.argv[2]\nsys.argv=['-c',*sys.argv[3:]]\nexec(code)\n"
         )
         shim.chmod(0o755)
         fixtures[node] = {"state": str(state), "writes": str(writes)}
@@ -61,14 +79,20 @@ def run_cluster(
                 "name": f"pve{i}",
                 "online": 0 if offline and i == 2 else 1,
             }
-            for i in (1, 2)
+            for i in indices
         ],
         "zones": [{"zone": "lab", "type": "simple", "nodes": "pve1"}],
         "nodes": fixtures,
         "apply_marker": str(tmp_path / "applied"),
         "delayed": delayed,
         "failed": failed,
+        "missing": missing,
+        "ambiguous": ambiguous,
+        "denied_audit": denied_audit,
+        "intervening_reload": intervening_reload,
+        "intervening_before_put": intervening_before_put,
         "polls": str(tmp_path / "polls"),
+        "worker_marker": str(tmp_path / "worker-"),
     }
     api_fixture = tmp_path / "api.json"
     api_fixture.write_text(json.dumps(document))
@@ -119,6 +143,8 @@ fixture=json.loads(pathlib.Path(m.params['fixture_file']).read_text());url=urlli
 marker=pathlib.Path(fixture['apply_marker'])
 if path.endswith('/cluster/status'): data=fixture['status']
 elif path.endswith('/cluster/sdn/zones'): data=fixture['zones']
+elif path.endswith('/access/permissions'):
+ aclpath=query['path'][0];data={aclpath:{} if fixture['denied_audit'] and aclpath=='/nodes/pve2' else {'Sys.Audit':0}}
 elif path.endswith('/cluster/sdn') and m.params['method']=='PUT':
  marker.touch()
  for entry in fixture['nodes'].values():
@@ -127,11 +153,18 @@ elif path.endswith('/cluster/sdn') and m.params['method']=='PUT':
 elif '/tasks/' in path and path.endswith('/status'): data={'status':'stopped','exitstatus':'OK'}
 elif path.endswith('/tasks'):
  node=path.split('/')[4];data=[]
- if marker.exists() and query.get('source')!=['active']:
+ recent=pathlib.Path(fixture['polls']+'-recent-'+node)
+ if not marker.exists() and query.get('source')!=['active']: recent.write_text(str(int(recent.read_text())+1 if recent.exists() else 1))
+ drift=fixture['intervening_reload'] or (fixture['intervening_before_put'] and recent.exists() and int(recent.read_text())>=2)
+ if drift and node=='pve2' and query.get('source')!=['active']:
+  data=[{'upid':f'UPID:{node}:222:1:499602D3:srvreload:networking:root@pam:','node':node,'type':'srvreload','id':'networking','starttime':1234567891,'endtime':1234567892,'status':'OK'}]
+ if marker.exists() and query.get('source')!=['active'] and not(fixture['missing'] and node=='pve2'):
   poll=pathlib.Path(fixture['polls']+'-'+node);count=int(poll.read_text())+1 if poll.exists() else 1;poll.write_text(str(count))
   row={'upid':f'UPID:{node}:222:1:499602D3:srvreload:networking:root@pam:','node':node,'type':'srvreload','id':'networking','starttime':1234567891}
   if not(fixture['delayed'] and node=='pve2' and count==1): row.update(endtime=1234567892,status='ERROR' if fixture['failed'] and node=='pve2' else 'OK')
   data=[row]
+  if fixture['ambiguous'] and node=='pve2': data.append({**row,'upid':row['upid'].replace(':222:',':333:')})
+  if row.get('status')=='OK': pathlib.Path(fixture['worker_marker']+node).touch()
 else: m.fail_json(msg='Unexpected fixture API path')
 m.exit_json(changed=False,status=200,json={'data':data})
 """)
@@ -153,7 +186,7 @@ m.exit_json(changed=False,status=200,json={'data':data})
         )
     )
     tasks = []
-    for action in (
+    for action in actions or (
         "network_snapshot_snat_rules",
         "network_apply_sdn",
         "network_reconcile_snat_sources",
@@ -175,7 +208,9 @@ m.exit_json(changed=False,status=200,json={'data':data})
                 "proxmox_api_user": "fixture",
                 "proxmox_api_token_id": "fixture",
                 "proxmox_api_token_secret": "not-a-secret",
-                "sdn_snat_node_hosts": mapping
+                "sdn_snat_node_hosts": None
+                if single_node
+                else mapping
                 if mapping is not None
                 else {"pve1": "ssh1", "pve2": "ssh2"},
                 "sdn_snat_desired_sources": [
@@ -187,6 +222,8 @@ m.exit_json(changed=False,status=200,json={'data':data})
             "tasks": tasks,
         }
     ]
+    if single_node:
+        del play[0]["vars"]["sdn_snat_node_hosts"]
     playbook = tmp_path / "playbook.yml"
     playbook.write_text(yaml.safe_dump(play, sort_keys=False))
     result = subprocess.run(
@@ -240,11 +277,60 @@ def test_missing_offline_or_wrong_ssh_node_refuses_before_any_global_write(
     )
 
 
-def test_failed_second_node_reload_prevents_cleanup_on_every_node(tmp_path):
-    result, fixture = run_cluster(tmp_path, failed=True)
+@pytest.mark.parametrize("fault", ["failed", "missing", "ambiguous"])
+def test_unverified_second_node_reload_prevents_cleanup_on_every_node(tmp_path, fault):
+    result, fixture = run_cluster(tmp_path, **{fault: True})
     assert result.returncode != 0
     assert Path(fixture["apply_marker"]).exists(), result.stdout[-5000:]
+    assert "SDN node reload could not be verified on pve2" in result.stdout
     assert all(
         json.loads(Path(node["writes"]).read_text()) == []
         for node in fixture["nodes"].values()
     )
+
+
+def test_apply_requires_a_complete_saved_snapshot_before_put(tmp_path):
+    result, fixture = run_cluster(tmp_path, actions=["network_apply_sdn"])
+    assert result.returncode != 0
+    assert not Path(fixture["apply_marker"]).exists()
+
+
+@pytest.mark.parametrize(
+    "action", ["network_reconcile_snat_sources", "network_restore_snat_snapshot"]
+)
+def test_cleanup_cannot_bypass_reload_completion(tmp_path, action):
+    result, fixture = run_cluster(
+        tmp_path, actions=["network_snapshot_snat_rules", action]
+    )
+    assert result.returncode != 0
+    assert (
+        "Every covered node must finish its verified SDN reload before cleanup"
+        in result.stdout
+    )
+    assert all(
+        json.loads(Path(node["writes"]).read_text()) == []
+        for node in fixture["nodes"].values()
+    )
+
+
+@pytest.mark.parametrize(
+    "fault", ["denied_audit", "intervening_reload", "intervening_before_put"]
+)
+def test_incomplete_task_visibility_or_snapshot_drift_prevents_apply(tmp_path, fault):
+    result, fixture = run_cluster(tmp_path, **{fault: True})
+    assert result.returncode != 0
+    assert not Path(fixture["apply_marker"]).exists(), result.stdout[-5000:]
+    assert all(
+        json.loads(Path(node["writes"]).read_text()) == []
+        for node in fixture["nodes"].values()
+    )
+
+
+def test_single_node_default_mapping_still_waits_before_cleanup(tmp_path):
+    result, fixture = run_cluster(tmp_path, single_node=True)
+    assert result.returncode == 0, result.stdout[-5000:] + result.stderr
+    assert json.loads(Path(fixture["nodes"]["pve1"]["state"]).read_text()) == [
+        UNRELATED,
+        OTHER_RULE,
+    ]
+    assert Path(fixture["worker_marker"] + "pve1").exists()

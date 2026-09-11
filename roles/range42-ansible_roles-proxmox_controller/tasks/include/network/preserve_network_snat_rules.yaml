@@ -1,6 +1,11 @@
 ---
 # One API coordinator, complete explicit SSH coverage, and private per-node rules.
 - block:
+    - name: NETWORK - SNAT - CLEAR COMPLETION BEFORE A NEW SNAPSHOT
+      ansible.builtin.set_fact:
+        network_snat_apply_verified: false
+      when: proxmox_vm_action == 'network_snapshot_snat_rules'
+
     - name: NETWORK - SNAT - REQUIRE ONE API COORDINATOR
       ansible.builtin.assert:
         that: ansible_play_hosts_all | length == 1
@@ -12,6 +17,12 @@
     - name: NETWORK - SNAT - SNAPSHOT EVERY NODE BEFORE WRITES
       ansible.builtin.include_tasks: snapshot_snat_nodes.yaml
       when: proxmox_vm_action == 'network_snapshot_snat_rules'
+
+    - name: NETWORK - SNAT - REQUIRE COMPLETE APPLY BEFORE CLEANUP
+      ansible.builtin.assert:
+        that: network_snat_apply_verified | default(false) == true
+        fail_msg: Every covered node must finish its verified SDN reload before cleanup.
+      when: proxmox_vm_action != 'network_snapshot_snat_rules'
 
     - name: NETWORK - SNAT - RECONCILE EACH NODE'S DECLARED SOURCES
       ansible.builtin.command:

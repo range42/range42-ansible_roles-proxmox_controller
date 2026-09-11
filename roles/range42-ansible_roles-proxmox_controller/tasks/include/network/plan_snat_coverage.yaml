@@ -64,3 +64,10 @@
     network_snat_plan: "{{ _sdn_snat_plan_read.stdout | from_json }}"
   no_log: true
   when: proxmox_vm_action == 'network_snapshot_snat_rules'
+
+- name: NETWORK - SNAT - REQUIRE COMPLETE TASK VISIBILITY ON EVERY NODE
+  ansible.builtin.include_tasks: check_snat_audit.yaml
+  loop: "{{ network_snat_plan.nodes }}"
+  loop_control:
+    loop_var: _sdn_snat_node
+    label: "{{ _sdn_snat_node.node }}"

@@ -32,40 +32,60 @@ tests (`/tmp/r42-snat-node-reconcile-green.log`). They overlap with earlier
 checks; these are command counts, not a combined suite total. The pre-existing
 pytest asyncio default-loop deprecation warning remains.
 
-## Partial Ansible wiring — not verified end to end
+## Bounded controller completion wiring
 
-`plan_snat_coverage.yaml`, `snapshot_snat_nodes.yaml`,
-`snat_reload_baseline.yaml`, and the preservation action now contain initial
-coverage, per-node snapshot, per-node reconciliation and restoration wiring.
-This wiring has NOT had its green integration run. Existing single-node action
-fixtures must be adapted to the new included files/API reads and public output.
+The continuation after `39072d0` wires `apply_network_sdn.yaml` to require saved
+snapshots and idle task baselines for all mapped nodes, revalidate membership
+before PUT, wait for the parent, and then wait for one verified successful
+`srvreload` / `networking` worker on every node. Failed, missing, unfinished,
+ambiguous or unreadable workers stop the flow before any NAT cleanup. Public
+apply output includes the verified `node_reloads` identities. Reconciliation
+and restoration also require the completion fact, which is cleared before a
+new snapshot or apply, so invoking cleanup directly does not bypass the wait.
 
-`tests/test_snat_cluster_ansible.py` provides a disposable two-node fixture with
-real Ansible/Python helpers and a private fake API/rule table. Its initial red
-run failed two expected cases (successful complete orchestration and failed
-second-node reload handling); three refusal cases passed. No run was started
-after the partial task wiring. Log: `/tmp/r42-snat-cluster-ansible-red.log`.
+`check_snat_audit.yaml` requires the authenticated token's effective
+`Sys.Audit` privilege on each `/nodes/<node>` path before relying on task
+history. The permissions response maps privilege names to propagation flags;
+a present privilege with value `0` is valid. Visibility is rechecked when
+waiting and before cleanup. Checking only `/cluster/status` is insufficient:
+an audit privilege on `/` need not propagate to node paths.
+
+The recent-history baseline now requires no networking task since the
+node-local snapshot timestamp. A completed task in that interval also makes
+the snapshot stale. Idle/history checks run again immediately before PUT.
+Proxmox timestamps have seconds resolution and `since` is inclusive, so a
+same-second completed task can conservatively require a fresh snapshot after
+the node is idle. No write is authorized on that refusal.
+
+`tests/test_snat_cluster_ansible.py` runs the actual Ansible task graph and
+Python helpers with a private API/rule fixture. It verifies delayed completion,
+failed/missing/ambiguous workers, all-node cleanup ordering, incomplete/offline/
+wrong-host mapping, effective task visibility, intervening reloads, direct
+cleanup refusal and the legitimate single-node default. The fixture's Python
+hostname shim was corrected to emulate `python3 -c` argument handling; the
+earlier partial checkpoint had failed before reaching apply. The initial
+completion run passed 10 cases; both subsequently reproduced visibility/drift
+regressions passed after their fixes. The final focused command passed all
+43 tests (14 real local Ansible cases and 29 planner/helper cases) in 132.81s:
+`pytest -q tests/test_snat_cluster_ansible.py tests/test_snat_cluster.py`.
+Log: `/tmp/r42-snat-apply-completion-final.log`. Scoped Ruff and `git diff
+--check` passed. The existing pytest asyncio configuration warning remains.
 
 ## Required next implementation
 
-1. Complete `apply_network_sdn.yaml`: revalidate coverage before PUT, then wait
-   for one new successful `srvreload` task with id `networking` on EVERY mapped
-   node after the parent finishes. Compare against the saved baseline and
-   validate helper completion evidence before any node cleanup. Missing,
-   ambiguous, failed or timed-out node workers must fail the operation.
-   Current task wiring does not yet invoke those completion helpers.
-2. Wire the playbooks composites to supply desired `{source,vnet,zone,want}`
+1. Wire the playbooks composites to supply desired `{source,vnet,zone,want}`
    entries and new-zone membership at snapshot, calculate missing-enabled
    conditions across all applicable nodes, and call
    `network_reconcile_snat_sources` instead of the old primary-node operation.
    Internet composites need an authoritative VNet-to-zone binding. Require
    actual cluster snapshot coverage before their first write, so old controller
    versions cannot silently ignore the new contract.
-3. Finish the local Ansible cases: two nodes, delayed and failed second-node
-   workers, incomplete/offline/wrong-host mappings, active or ambiguous reloads,
-   unchanged single-node behavior, and preservation of unrelated node rules.
-   Update compatibility markers/parameter docs only after matching tests pass.
-4. Review node mapping changes, selected zone membership changes, SSH identity
+2. Adapt older single-node action fixtures to the new included files/API reads
+   and output. Run matched composite orchestration tests and update capability
+   markers/parameter docs only after that integration passes. This bounded
+   controller continuation does not claim a passing full controller suite or
+   a compatible playbooks release.
+3. Review node mapping changes, selected zone membership changes, SSH identity
    expectations and limits before any matched release/acceptance. Inventory
    configuration remains trusted; no discovery of SSH credentials is implied.
 
@@ -74,6 +94,14 @@ entire cluster transaction. External configuration writers still need explicit
 coordination. nft remains unsupported. Root independently reported read-only
 range42 evidence `iptables v1.8.11 (legacy)` on 2026-09-11; this establishes that
 target's backend compatibility, not acceptance of this unfinished checkpoint.
+
+The global parent does not expose child UPIDs. Observing one new node worker
+after a verified idle baseline is evidence only while external reload writers
+are coordinated; it does not cryptographically bind the worker to this apply.
+Permission/configuration changes during execution, disappeared task history,
+clock rollback, unsupported zones, and partial node failure remain reasons to
+stop and inspect. No cross-node atomic rollback is promised. No live node or
+multi-node cluster acceptance was performed in this continuation.
 
 ## Primary source findings
 
@@ -89,3 +117,6 @@ uses task type `srvreload`, id `networking`.
 [Node task listing](https://github.com/proxmox/pve-manager/blob/master/PVE/API2/Tasks.pm)
 supports `source=active|all`, `typefilter`, `since` and bounded `limit`; propagated
 `Sys.Audit` is needed to see other users' workers.
+[Effective permissions](https://github.com/proxmox/pve-access-control/blob/master/src/PVE/API2/AccessControl.pm)
+can be queried for the current token at an exact ACL path; values describe
+propagation, while key presence establishes the privilege on that path.

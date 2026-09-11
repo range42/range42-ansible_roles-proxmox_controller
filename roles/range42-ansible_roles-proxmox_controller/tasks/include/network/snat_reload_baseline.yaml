@@ -35,5 +35,12 @@
   no_log: true
 
 - name: NETWORK - SNAT - RETAIN THE NODE RELOAD BASELINE
+  # A finished reload since the NAT snapshot also invalidates that snapshot.
+  # The inclusive seconds-resolution window may conservatively require retry.
+  ansible.builtin.assert:
+    that: (_sdn_snat_baseline_read.stdout | from_json).upids | length == 0
+    fail_msg: "A network reload was observed in the snapshot window on {{ _sdn_snat_node.node }}. No SDN apply is authorized; wait for idle and take a fresh snapshot."
+
+- name: NETWORK - SNAT - SAVE THE VERIFIED IDLE NODE BASELINE
   ansible.builtin.set_fact:
     network_snat_reload_baseline: "{{ network_snat_reload_baseline | combine({_sdn_snat_node.node: (_sdn_snat_baseline_read.stdout | from_json).upids}) }}"

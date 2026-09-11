@@ -1,0 +1,53 @@
+---
+# Proxmox's reloadnetworkall parent does not wait for its per-node srvreload
+# workers. Require one new completed worker on each mapped node before cleanup.
+- block:
+    - name: NETWORK - SNAT - VERIFY VISIBILITY BEFORE WAITING FOR NODE RELOAD
+      ansible.builtin.include_tasks: check_snat_audit.yaml
+
+    - name: NETWORK - SNAT - WAIT FOR THE NODE NETWORK RELOAD
+      ansible.builtin.uri:
+        url: "https://{{ proxmox_api_host }}/api2/json/nodes/{{ _sdn_snat_node.node }}/tasks?source=all&typefilter=srvreload&limit=129&since={{ network_snat_snapshots[_sdn_snat_node.node].captured_at }}"
+        method: GET
+        headers:
+          Authorization: "PVEAPIToken={{ proxmox_api_user }}!{{ proxmox_api_token_id }}={{ proxmox_api_token_secret }}"
+        validate_certs: "{{ proxmox_api_validate_certs | default(false) }}"
+      vars:
+        _sdn_new_reload_tasks: >-
+          {{ _sdn_snat_reload_status.json.data
+             | selectattr('id', 'defined') | selectattr('id', 'equalto', 'networking')
+             | rejectattr('upid', 'in', network_snat_reload_baseline[_sdn_snat_node.node]) | list }}
+      register: _sdn_snat_reload_status
+      until: >-
+        (_sdn_new_reload_tasks | length > 1) or
+        ((_sdn_new_reload_tasks | length == 1) and (_sdn_new_reload_tasks[0].endtime is defined))
+      retries: "{{ sdn_apply_poll_retries | default(60) }}"
+      delay: "{{ sdn_apply_poll_delay | default(2) }}"
+      no_log: true
+
+    - name: NETWORK - SNAT - VERIFY THE NODE WORKER IDENTITY AND RESULT
+      ansible.builtin.command:
+        argv: [python3, -c, "{{ lookup('file', role_path ~ '/files/snat_cluster.py') }}", reload-completion]
+        stdin: "{{ {'node': _sdn_snat_node.node, 'rows': _sdn_snat_reload_status.json.data, 'known': network_snat_reload_baseline[_sdn_snat_node.node]} | to_json }}"
+      register: _sdn_snat_reload_verified
+      changed_when: false
+      no_log: true
+
+    - name: NETWORK - SNAT - REQUIRE POSITIVE NODE COMPLETION EVIDENCE
+      ansible.builtin.assert:
+        that: (_sdn_snat_reload_verified.stdout | from_json).ready == true
+      no_log: true
+
+    - name: NETWORK - SNAT - RETAIN THE VERIFIED NODE WORKER
+      ansible.builtin.set_fact:
+        network_snat_node_reloads: "{{ network_snat_node_reloads | combine({_sdn_snat_node.node: (_sdn_snat_reload_verified.stdout | from_json).upid}) }}"
+
+    - name: NETWORK - SNAT - RECHECK NODE TASK VISIBILITY AFTER COMPLETION
+      ansible.builtin.include_tasks: check_snat_audit.yaml
+  rescue:
+    - name: NETWORK - SNAT - REFUSE CLEANUP WITHOUT VERIFIED NODE RELOAD
+      ansible.builtin.fail:
+        msg: >-
+          SDN node reload could not be verified on {{ _sdn_snat_node.node }}.
+          It was missing, unfinished, failed, ambiguous or unreadable; no NAT cleanup is authorized.
+          The global apply may already have changed nodes. Inspect all covered node task logs before retrying.
