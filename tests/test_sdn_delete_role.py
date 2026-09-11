@@ -13,7 +13,10 @@ from test_snat_cluster import HELPER
 
 
 @pytest.mark.parametrize("same_cluster", [True, False])
-def test_role_checks_api_and_privileged_ssh_cluster_identity(tmp_path, same_cluster):
+@pytest.mark.parametrize("selection", [None, ["absent"]])
+def test_role_checks_api_and_privileged_ssh_cluster_identity(
+    tmp_path, same_cluster, selection
+):
     result, _ = run_collector(tmp_path)
     assert result.returncode == 0
     role = tmp_path / "roles/range42-ansible_roles-proxmox_controller"
@@ -82,8 +85,16 @@ m.exit_json(changed=False,status=200,json={'data':[{'filename':'pve-root-ca.pem'
                         "proxmox_api_token_id": "fixture",
                         "proxmox_api_token_secret": "fixture",
                         "sdn_zone": "lab",
+                        "sdn_delete_vnets": selection,
                     },
-                    "tasks": [{"ansible.builtin.include_role": {"name": role.name}}],
+                    "tasks": [
+                        {"ansible.builtin.include_role": {"name": role.name}},
+                        {
+                            "ansible.builtin.assert": {
+                                "that": "network_plan_sdn_delete.scope.requested_vnets == (sdn_delete_vnets if sdn_delete_vnets is not none else [])"
+                            }
+                        },
+                    ],
                 }
             ]
         )

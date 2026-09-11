@@ -15,7 +15,7 @@
       - -c
       - "{{ lookup('file', role_path ~ '/files/snat_cluster.py') }}"
       - read-delete
-    stdin: "{{ {'zone': sdn_zone, 'node': proxmox_node} | to_json }}"
+    stdin: "{{ {'zone': sdn_zone, 'node': proxmox_node, 'vnets': sdn_delete_vnets | default(none)} | to_json }}"
   environment:
     PATH: /usr/sbin:/sbin:/usr/bin:/bin
   delegate_to: "{{ (sdn_snat_node_hosts | default({})).get(proxmox_node, groups['proxmox_cli'] | first) }}"
@@ -27,7 +27,7 @@
 - name: NETWORK - DELETE - REQUIRE COMPLETE UNATTACHED SETTLED SCOPE
   ansible.builtin.assert:
     that: _sdn_delete_read.rc == 0
-    fail_msg: Complete privileged SDN/guest inventory could not prove an unattached zone without pending changes. No declaration write is authorized.
+    fail_msg: Complete privileged SDN/guest inventory could not prove unattached selected objects without pending changes. No declaration write is authorized.
 
 - name: NETWORK - DELETE - RETAIN ONLY SANITIZED SCOPE
   ansible.builtin.set_fact:

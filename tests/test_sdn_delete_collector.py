@@ -13,7 +13,14 @@ from test_snat_cluster import HELPER
 
 
 def run_collector(
-    tmp_path, *, uid="0", hostname="pve1", fault=None, guest_type="qemu", guest_count=1
+    tmp_path,
+    *,
+    uid="0",
+    hostname="pve1",
+    fault=None,
+    guest_type="qemu",
+    guest_count=1,
+    selection=None,
 ):
     request = document()
     request.update(
@@ -100,7 +107,7 @@ print(json.dumps(value))
         (bin_dir / name).symlink_to(script)
     result = subprocess.run(
         [sys.executable, str(HELPER), "read-delete"],
-        input=json.dumps({"zone": "lab", "node": "pve1"}),
+        input=json.dumps({"zone": "lab", "node": "pve1", "vnets": selection}),
         text=True,
         capture_output=True,
         env={**os.environ, "PATH": str(bin_dir), "DELETE_FIXTURE": str(source)},
@@ -237,3 +244,17 @@ def test_optimized_reads_retain_all_supported_attachment_evidence(
     assert any(row[1].endswith("/pending") for row in calls)
     if guest_type == "lxc":
         assert any(row[1].endswith("/config") for row in calls)
+
+
+def test_collector_preserves_explicit_absent_selection_without_guessed_cleanup(
+    tmp_path,
+):
+    result, calls = run_collector(tmp_path, selection=["absent"])
+    assert result.returncode == 0, result.stderr
+    scope = json.loads(result.stdout)["scope"]
+    assert scope["requested_vnets"] == ["absent"]
+    assert scope["vnets"] == []
+    assert scope["desired_sources"] == []
+    assert scope["zone_present"] is True
+    assert scope["remaining_sha256"] == scope["inventory_sha256"]
+    assert all(row[0] == "get" for row in calls)

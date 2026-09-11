@@ -475,6 +475,7 @@ def read_delete(document):
     scope = delete_scope(
         {
             "zone": document.get("zone"),
+            "vnets": document.get("vnets"),
             "status": status,
             "features": features,
             "families": families,
@@ -488,7 +489,7 @@ def read_delete(document):
 
 
 def delete_scope(document):
-    """Resolve one complete zone deletion from privileged read-only inventory."""
+    """Resolve explicit zone or selected-VNet deletion from complete inventory."""
     nodes, _ = cluster_nodes(document.get("status"))
     zone = document.get("zone")
     if not isinstance(zone, str) or not re.fullmatch(r"[A-Za-z][A-Za-z0-9]{1,7}", zone):
@@ -565,7 +566,30 @@ def delete_scope(document):
         raise ValueError(
             "Every VNet needs one authoritative zone and complete subnet coverage"
         )
-    selected_vnets = sorted(row["vnet"] for row in vnets if row["zone"] == zone)
+    requested = document.get("vnets")
+    selected_mode = requested is not None
+    if selected_mode:
+        if (
+            not isinstance(requested, list)
+            or not 1 <= len(requested) <= 64
+            or any(
+                not isinstance(name, str)
+                or not re.fullmatch(r"[A-Za-z][A-Za-z0-9]{1,7}", name)
+                for name in requested
+            )
+            or len(set(requested)) != len(requested)
+        ):
+            raise ValueError("Selected deletion requires 1–64 unique VNet names")
+        requested = sorted(requested)
+        if any(row["vnet"] in requested and row["zone"] != zone for row in vnets):
+            raise ValueError(
+                "Every selected existing VNet must belong to the explicit zone"
+            )
+    selected_vnets = sorted(
+        row["vnet"]
+        for row in vnets
+        if row["zone"] == zone and (not selected_mode or row["vnet"] in requested)
+    )
     if len(selected_vnets) > 64:
         raise ValueError("One bounded deletion supports at most 64 selected VNets")
     all_subnets = []
@@ -703,13 +727,23 @@ def delete_scope(document):
 
     remaining = {
         **families,
-        "zones": [row for row in zones if row["zone"] != zone],
+        "zones": zones
+        if selected_mode
+        else [row for row in zones if row["zone"] != zone],
         "vnets": [row for row in vnets if row["vnet"] not in selected_vnets],
     }
     return {
         "version": 1,
         "zone": zone,
         "zone_present": bool(selected_zone),
+        "selection": "vnets" if selected_mode else "zone",
+        "requested_vnets": requested if selected_mode else [],
+        "absent_vnets": sorted(set(requested) - set(selected_vnets))
+        if selected_mode
+        else [],
+        "objects_present": bool(selected_vnets)
+        if selected_mode
+        else bool(selected_zone),
         "zone_nodes": selected_nodes,
         "cluster_nodes": sorted(nodes),
         "vnets": selected_vnets,
