@@ -213,8 +213,8 @@ canonical subnet sorting; all 34 affected scope cases pass afterward. Logs:
 The root's separate read-only trial of frozen helper
 `bbf7d342614c29d6324738bed444da6bd20786132cb61680d10ea38d0b73e2ad` on the
 47-guest lab refused after 118.26s with an inventory-command timeout; it accepted
-no scope and performed no writes. This is an unresolved real-target performance
-limitation at this checkpoint, not passing live acceptance. Detailed contracts,
+no scope and performed no writes. This recorded a real-target performance
+limitation in that earlier checkpoint, not passing live acceptance. Detailed contracts,
 source URLs and subsequent trace results belong in the paired playbooks
 `docs/sdn-delete-all-source-checkpoint.md`. No mutation or runtime activation
 has been authorized by these source tests.
@@ -258,9 +258,20 @@ delete-only form emitted by GuestHelpers remains accepted. All 42 scope tests
 pass after this narrow fix (`/tmp/r42-delete-key-only-green.log`), with scoped
 Ruff and whitespace checks also passing. The final frozen helper SHA256 is
 `f76b5956896de67b2b4122df2f66f742c827c81f9fca37d1b4eae40b282c95a5`.
-These local results are not a passing live probe; the root must review and
-repeat the bounded read-only collector before claiming real-target compatibility.
-No mutation acceptance, installer integration or automatic recovery is implied.
+
+The subsequent frozen read-only lab probe, actual handle61395, passed with rc0
+in 77.24s at `2026-09-11T14:19:55.370572Z`. It used exactly the helper above
+from controller `97f9f9a6e73bf6daf752e6f344f3caeed13c4758`. The collector verified
+root on `pve01`, selected the present `r42smoke` zone with two VNets and two
+subnets, and returned the sole cluster node `pve01` and a CA-bound identity.
+Sanitized evidence is `/tmp/r42-sdn-delete-readonly-batched-20260911/result.json`;
+the detailed `scope.json` stays private alongside it. The earlier 118.26s and
+120s timeout refusals remain preserved.
+
+This establishes bounded read-only collector compatibility on the 47-guest lab.
+It does not test the role's API-to-SSH CA pairing or authorize declaration/rule
+writes. Matched mutation acceptance, installer integration and automatic partial
+recovery remain pending. No runtime activation occurred.
 
 ## Required next implementation
 
@@ -277,8 +288,9 @@ No mutation acceptance, installer integration or automatic recovery is implied.
    release review. Subsequent paired work adapts `bootstrap.sdn_vnet` and the
    standalone `reconcile.snat_rules` entrypoint. The guarded deletion source
    now retains pre-delete scope with attachment/pending review and all-node
-   preservation; its real-target read-only performance, installer state wiring
-   and matched mutation acceptance remain pending. Capability markers remain
+   preservation; its read-only collector passes on the 47-guest lab. Installer
+   state wiring, role API/SSH pairing and matched mutation acceptance remain
+   pending. Capability markers remain
    unchanged. This bounded continuation does not claim a passing full controller
    suite or a deployable release.
 3. Review node mapping changes, selected zone membership changes, SSH identity
