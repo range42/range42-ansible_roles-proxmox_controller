@@ -4,12 +4,28 @@
     - name: NETWORK - SNAT - CLEAR COMPLETION BEFORE A NEW SNAPSHOT
       ansible.builtin.set_fact:
         network_snat_apply_verified: false
+        network_snat_snapshot_verified: false
+        network_snat_apply_attempted: null
       when: proxmox_vm_action == 'network_snapshot_snat_rules'
 
     - name: NETWORK - SNAT - REQUIRE ONE API COORDINATOR
       ansible.builtin.assert:
         that: ansible_play_hosts_all | length == 1
         fail_msg: Global SDN apply requires exactly one API coordinator in this play.
+
+    - name: NETWORK - SNAT - REQUIRE A COMPLETE VERIFIED SNAPSHOT BEFORE CLEANUP
+      ansible.builtin.assert:
+        that:
+          - (network_snat_snapshot_verified | default(none)) is sameas true
+          - network_snat_plan_input is defined and network_snat_plan_input is mapping
+          - network_snat_plan is defined and network_snat_plan is mapping
+          - network_snat_plan.nodes | length > 0
+          - network_snat_snapshots is defined and network_snat_snapshots is mapping
+          - network_snat_reload_baseline is defined and network_snat_reload_baseline is mapping
+          - (network_snat_snapshots | list | sort) == (network_snat_plan.nodes | map(attribute='node') | sort)
+          - (network_snat_reload_baseline | list | sort) == (network_snat_plan.nodes | map(attribute='node') | sort)
+        fail_msg: Cleanup requires a fresh verified snapshot and complete idle reload baselines on every covered node.
+      when: proxmox_vm_action != 'network_snapshot_snat_rules'
 
     - name: NETWORK - SNAT - VALIDATE COMPLETE CLUSTER COVERAGE
       ansible.builtin.include_tasks: plan_snat_coverage.yaml
@@ -18,11 +34,31 @@
       ansible.builtin.include_tasks: snapshot_snat_nodes.yaml
       when: proxmox_vm_action == 'network_snapshot_snat_rules'
 
-    - name: NETWORK - SNAT - REQUIRE COMPLETE APPLY BEFORE CLEANUP
+    - name: NETWORK - SNAT - REQUIRE COMPLETE APPLY BEFORE RESTORATION
       ansible.builtin.assert:
-        that: network_snat_apply_verified | default(false) == true
+        that: (network_snat_apply_verified | default(none)) is sameas true
         fail_msg: Every covered node must finish its verified SDN reload before cleanup.
-      when: proxmox_vm_action != 'network_snapshot_snat_rules'
+      when: proxmox_vm_action == 'network_restore_snat_snapshot'
+
+    - name: NETWORK - SNAT - REQUIRE VERIFIED APPLY OR A STABLE SNAPSHOT BEFORE RECONCILIATION
+      ansible.builtin.assert:
+        that: >-
+          ((network_snat_apply_attempted | default(none)) is sameas true and
+           (network_snat_apply_verified | default(none)) is sameas true) or
+          ((network_snat_apply_attempted | default(none)) is sameas false and
+           (network_snat_apply_verified | default(none)) is sameas false)
+        fail_msg: Reconciliation requires either a verified apply or a fresh snapshot with no apply attempt. An unknown or incomplete apply cannot authorize cleanup.
+      when: proxmox_vm_action == 'network_reconcile_snat_sources'
+
+    - name: NETWORK - SNAT - REFUSE INTERVENING RELOADS BEFORE STABLE RECONCILIATION
+      ansible.builtin.include_tasks: snat_reload_baseline.yaml
+      loop: "{{ network_snat_plan.nodes }}"
+      loop_control:
+        loop_var: _sdn_snat_node
+        label: "{{ _sdn_snat_node.node }}"
+      when:
+        - proxmox_vm_action == 'network_reconcile_snat_sources'
+        - (network_snat_apply_attempted | default(none)) is sameas false
 
     - name: NETWORK - SNAT - RECONCILE EACH NODE'S DECLARED SOURCES
       ansible.builtin.command:

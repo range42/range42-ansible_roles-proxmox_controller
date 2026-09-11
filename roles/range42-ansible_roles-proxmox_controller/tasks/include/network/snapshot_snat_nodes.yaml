@@ -60,3 +60,8 @@
   loop_control:
     loop_var: _sdn_snat_node
     label: "{{ _sdn_snat_node.node }}"
+
+- name: NETWORK - SNAT - VERIFY THE COMPLETE SNAPSHOT WITHOUT AN APPLY ATTEMPT
+  ansible.builtin.set_fact:
+    network_snat_snapshot_verified: true
+    network_snat_apply_attempted: false

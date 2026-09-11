@@ -36,12 +36,14 @@
     - name: NETWORK - CLUSTER - CLEAR PREVIOUS APPLY COMPLETION
       ansible.builtin.set_fact:
         network_snat_apply_verified: false
+        network_snat_apply_attempted: true
         network_snat_node_reloads: {}
 
     - name: NETWORK - CLUSTER - REQUIRE COMPLETE SAVED PRESERVATION COVERAGE
       ansible.builtin.assert:
         that:
           - ansible_play_hosts_all | length == 1
+          - (network_snat_snapshot_verified | default(none)) is sameas true
           - network_snat_plan is defined and network_snat_plan is mapping
           - network_snat_plan.nodes | length > 0
           - network_snat_snapshots is defined and network_snat_snapshots is mapping

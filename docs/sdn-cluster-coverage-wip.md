@@ -39,9 +39,34 @@ snapshots and idle task baselines for all mapped nodes, revalidate membership
 before PUT, wait for the parent, and then wait for one verified successful
 `srvreload` / `networking` worker on every node. Failed, missing, unfinished,
 ambiguous or unreadable workers stop the flow before any NAT cleanup. Public
-apply output includes the verified `node_reloads` identities. Reconciliation
-and restoration also require the completion fact, which is cleared before a
-new snapshot or apply, so invoking cleanup directly does not bypass the wait.
+apply output includes the verified `node_reloads` identities. Restoration
+requires the completion fact, which is cleared before a new snapshot or apply.
+Reconciliation can also run from a complete stable snapshot when no apply was
+attempted, after fresh membership, task visibility and reload-history checks.
+That path never claims apply completion.
+
+The explicit facts are `network_snat_snapshot_verified`,
+`network_snat_apply_attempted` and `network_snat_apply_verified`. Snapshot entry
+sets them to `false`, `null` and `false`; only successful collection and idle
+baseline checks on every node set snapshot verification to `true` and apply
+attempted to `false`. Entering apply sets attempted to `true` before its guards
+or requests, and only verified parent and node completion sets apply verified
+to `true`. An unknown state, failed new snapshot or attempted but unverified
+apply cannot authorize stable reconciliation. Saved node key coverage must
+also be complete. Stable reconciliation rereads zone membership instead of
+reusing the snapshot's saved zone inventory.
+
+The stable no-apply regressions first failed at the former completion guard
+(`/tmp/r42-snat-no-apply-red.log`); a separate zone-drift regression then showed
+that saved membership could incorrectly authorize reconciliation
+(`/tmp/r42-snat-no-apply-zone-red.log`). The final focused command passed all
+61 tests, including 27 real local Ansible cases, in 248.79 seconds:
+`pytest -q tests/test_snat_cluster_ansible.py tests/test_snat_cluster.py tests/test_snat_node_reconcile.py`.
+Log: `/tmp/r42-snat-no-apply-green.log`. The caller-task/fixture-role hooks also
+passed a real stable-preservation run (`/tmp/r42-snat-caller-hook-green.log`).
+Scoped Ruff, formatting and `git diff --check` passed. The existing pytest
+asyncio configuration warning remains. These checks do not establish paired
+composite or live cluster acceptance.
 
 `check_snat_audit.yaml` requires the authenticated token's effective
 `Sys.Audit` privilege on each `/nodes/<node>` path before relying on task

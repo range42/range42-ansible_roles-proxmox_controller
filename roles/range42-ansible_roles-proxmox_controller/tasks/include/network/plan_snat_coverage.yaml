@@ -18,7 +18,10 @@
     validate_certs: "{{ proxmox_api_validate_certs | default(false) }}"
   register: _sdn_snat_zones
   no_log: true
-  when: proxmox_vm_action == 'network_snapshot_snat_rules'
+  when: >-
+    proxmox_vm_action == 'network_snapshot_snat_rules' or
+    (proxmox_vm_action == 'network_reconcile_snat_sources' and
+     (network_snat_apply_attempted | default(none)) is sameas false)
 
 - name: NETWORK - SNAT - CAPTURE THE REQUESTED SCOPE
   ansible.builtin.set_fact:
@@ -42,7 +45,18 @@
       - -c
       - "{{ lookup('file', role_path ~ '/files/snat_cluster.py') }}"
       - plan
-    stdin: "{{ network_snat_plan_input | combine({'status': _sdn_snat_status.json.data, 'node_hosts': sdn_snat_node_hosts | default(none), 'cli_hosts': groups['proxmox_cli'] | default([]), 'primary_node': proxmox_node}) | to_json }}"
+    stdin: >-
+      {{ network_snat_plan_input | combine({
+        'status': _sdn_snat_status.json.data,
+        'node_hosts': sdn_snat_node_hosts | default(none),
+        'cli_hosts': groups['proxmox_cli'] | default([]),
+        'primary_node': proxmox_node,
+        'zones': _sdn_snat_zones.json.data
+          if proxmox_vm_action == 'network_snapshot_snat_rules' or
+             (proxmox_vm_action == 'network_reconcile_snat_sources' and
+              (network_snat_apply_attempted | default(none)) is sameas false)
+          else network_snat_plan_input.zones
+        }) | to_json }}
   register: _sdn_snat_plan_read
   changed_when: false
   failed_when: false
