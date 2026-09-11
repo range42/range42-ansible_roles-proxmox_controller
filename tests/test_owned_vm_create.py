@@ -87,7 +87,13 @@ def api(tmp_path, get_status, post_status=200, state_path=None):
                         ],
                     )
                 elif "/tasks/" in self.path:
-                    self.reply(200, {"status": "stopped", "exitstatus": "OK"})
+                    self.reply(
+                        200,
+                        {
+                            "status": "stopped",
+                            "exitstatus": state.get("create_task_exit", "OK"),
+                        },
+                    )
                 else:
                     self.reply(
                         200 if state["exists"] else 500,
@@ -114,7 +120,18 @@ def api(tmp_path, get_status, post_status=200, state_path=None):
                     state["status"] = "stopped"
                 state["commands"].append(["API", self.command, self.path])
                 state_path.write_text(json.dumps(state))
-            self.reply(post_status)
+            task = (
+                state.get(
+                    "create_task_id",
+                    "UPID:pve01:00000001:00000001:00000001:qmcreate:62000:test@pve:",
+                )
+                if state_path
+                else None
+            )
+            self.reply(
+                post_status,
+                task if state_path and self.path.endswith("/qemu") else None,
+            )
 
         do_PUT = do_POST
 
