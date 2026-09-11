@@ -252,6 +252,7 @@ def test_reordered_api_rows_preserve_identical_deletion_scope():
         "bad_delete",
         "bool_delete",
         "empty_qemu",
+        "key_only",
     ],
 )
 def test_malformed_complete_pending_configuration_is_rejected(fault):
@@ -269,4 +270,15 @@ def test_malformed_complete_pending_configuration_is_rejected(fault):
         pending[0]["delete"] = True
     elif fault == "empty_qemu":
         pending.clear()
+    elif fault == "key_only":
+        pending[0] = {"key": "net0"}
     assert invoke(request, "delete-scope").returncode != 0
+
+
+def test_delete_only_pending_row_is_valid():
+    request = document()
+    request["guest_configs"]["qemu/100"]["pending"].append(
+        {"key": "net1", "delete": 1}
+    )
+    result = invoke(request, "delete-scope")
+    assert result.returncode == 0, result.stderr

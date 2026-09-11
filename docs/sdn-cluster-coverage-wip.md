@@ -252,8 +252,12 @@ pending proof. Final actual handle67821 passed 63 collector/scope/real-role
 checks in 37.16s (`/tmp/r42-delete-batch-final.log`). Actual handle76091 passed
 both affected paired success/partial-retry cases in 49.50s, with 7 deselected
 (`/tmp/r42-delete-batch-paired.log`). Scoped Ruff and whitespace checks pass.
-The frozen candidate helper SHA256 is
-`7a442df958f096f7284d4dfd0a1d2a49d48f1d6082c547795ef417f503887835`.
+Review then reproduced acceptance of a malformed pending row containing only
+`key`. Rows now require at least one of `value`, `pending` or `delete`; the valid
+delete-only form emitted by GuestHelpers remains accepted. All 42 scope tests
+pass after this narrow fix (`/tmp/r42-delete-key-only-green.log`), with scoped
+Ruff and whitespace checks also passing. The final frozen helper SHA256 is
+`f76b5956896de67b2b4122df2f66f742c827c81f9fca37d1b4eae40b282c95a5`.
 These local results are not a passing live probe; the root must review and
 repeat the bounded read-only collector before claiming real-target compatibility.
 No mutation acceptance, installer integration or automatic recovery is implied.

@@ -637,6 +637,7 @@ def delete_scope(document):
                 or not re.fullmatch(r"[A-Za-z][A-Za-z0-9_.-]{0,127}", option)
                 or option in seen_keys
                 or not set(pending) <= {"key", "value", "pending", "delete"}
+                or not {"value", "pending", "delete"}.intersection(pending)
                 or (
                     "delete" in pending
                     and (
