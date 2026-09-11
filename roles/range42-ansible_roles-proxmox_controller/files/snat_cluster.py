@@ -1,8 +1,15 @@
 """Bounded, read-only planning for cluster-wide NAT preservation."""
 
+import hashlib
 import ipaddress
 import json
+import os
 import re
+import resource
+import signal
+import subprocess
+import tempfile
+import time
 import sys
 
 
@@ -203,6 +210,425 @@ def zone_nodes(document):
     return {"nodes": None if selected == set(nodes) else ",".join(sorted(selected))}
 
 
+def certificate_identity(certificates):
+    if not isinstance(certificates, list) or any(
+        not isinstance(row, dict) for row in certificates
+    ):
+        raise ValueError("Cluster CA certificate inventory is unreadable")
+    matches = [row for row in certificates if row.get("filename") == "pve-root-ca.pem"]
+    fingerprint = matches[0].get("fingerprint") if len(matches) == 1 else None
+    if not isinstance(fingerprint, str) or not re.fullmatch(
+        r"[0-9a-fA-F]{2}(?::[0-9a-fA-F]{2}){31}", fingerprint
+    ):
+        raise ValueError("Exactly one SHA256 cluster CA fingerprint is required")
+    return "pve-root-ca-sha256:" + fingerprint.replace(":", "").lower()
+
+
+def read_delete(document):
+    """Use a verified privileged node to avoid ACL-filtered inventory omissions."""
+    deadline = time.monotonic() + 120
+    total_output = 0
+
+    def command(argv):
+        nonlocal total_output
+        remaining = deadline - time.monotonic()
+        if remaining <= 0:
+            raise ValueError("Deletion inventory exceeded its overall read deadline")
+
+        # Cap output before parsing or allocating it in memory, including a
+        # misbehaving child. The temporary file is private and unlinked on exit.
+        def limit_output():
+            resource.setrlimit(
+                resource.RLIMIT_FSIZE, (4 * 1024 * 1024, 4 * 1024 * 1024)
+            )
+
+        with tempfile.TemporaryFile() as output:
+            try:
+                with subprocess.Popen(
+                    argv,
+                    stdout=output,
+                    stderr=subprocess.DEVNULL,
+                    preexec_fn=limit_output,
+                    start_new_session=True,
+                ) as process:
+                    try:
+                        code = process.wait(timeout=min(10, remaining))
+                    except subprocess.TimeoutExpired as exc:
+                        # The still-owned unreaped child identifies this process
+                        # group; kill any pvesh SSH descendants before reaping.
+                        os.killpg(process.pid, signal.SIGKILL)
+                        process.wait()
+                        raise ValueError(
+                            "Deletion inventory command timed out"
+                        ) from exc
+                if code != 0:
+                    raise ValueError("Deletion inventory read failed")
+            except OSError as exc:
+                raise ValueError("Deletion inventory command is unavailable") from exc
+            output.seek(0)
+            raw = output.read(4 * 1024 * 1024 + 1)
+            if len(raw) > 4 * 1024 * 1024:
+                raise ValueError("Deletion inventory output is too large")
+            total_output += len(raw)
+            if total_output > 16 * 1024 * 1024:
+                raise ValueError(
+                    "Deletion inventory exceeded its aggregate output limit"
+                )
+            return raw.decode("utf-8")
+
+    node = document.get("node")
+    if not isinstance(node, str) or not re.fullmatch(
+        r"[A-Za-z0-9][A-Za-z0-9_.-]{0,127}", node
+    ):
+        raise ValueError("A mapped cluster node is required for deletion inventory")
+    if (
+        command(["id", "-u"]).strip() != "0"
+        or command(["hostname", "-s"]).strip() != node
+    ):
+        raise ValueError("Deletion inventory requires root on the exact mapped node")
+
+    def get(path, *options):
+        return json.loads(
+            command(["pvesh", "get", path, *options, "--output-format", "json"])
+        )
+
+    def settled(value):
+        if (
+            not isinstance(value, list)
+            or len(value) > 4096
+            or any(not isinstance(row, dict) for row in value)
+        ):
+            raise ValueError("Incomplete deletion inventory response")
+        if any(
+            row.get("state") not in (None, "unchanged")
+            or row.get("pending") not in (None, {})
+            for row in value
+        ):
+            raise ValueError("Pending SDN changes require review before deletion")
+        return value
+
+    status = get("/cluster/status")
+    nodes, _ = cluster_nodes(status)
+    if node not in nodes:
+        raise ValueError("The SSH node is not in the authoritative cluster")
+    cluster_identity = certificate_identity(get(f"/nodes/{node}/certificates/info"))
+    directory = get("/cluster/sdn")
+    if not isinstance(directory, list) or any(
+        not isinstance(row, dict) for row in directory
+    ):
+        raise ValueError("SDN feature directory is unreadable")
+    features = [row.get("id") for row in directory]
+    base = {"zones", "vnets", "controllers", "ipams", "dns"}
+    if (
+        any(not isinstance(name, str) for name in features)
+        or len(set(features)) != len(features)
+        or not base <= set(features) <= base | {"fabrics", "prefix-lists", "route-maps"}
+    ):
+        raise ValueError("Unsupported or incomplete SDN feature directory")
+    families = {}
+    for name in features:
+        path = "/cluster/sdn/" + {
+            "fabrics": "fabrics/all",
+            "route-maps": "route-maps/entries",
+        }.get(name, name)
+        options = [] if name in {"ipams", "dns"} else ["--pending", "1"]
+        if name == "prefix-lists":
+            options += ["--verbose", "1"]
+        value = get(path, *options)
+        if name == "fabrics":
+            if not isinstance(value, dict) or set(value) != {"fabrics", "nodes"}:
+                raise ValueError("Incomplete fabric inventory")
+            settled(value["fabrics"])
+            settled(value["nodes"])
+        else:
+            settled(value)
+        families[name] = value
+    subnets = {}
+    for row in families["vnets"]:
+        name = row.get("vnet")
+        if (
+            not isinstance(name, str)
+            or not re.fullmatch(r"[A-Za-z][A-Za-z0-9]{1,7}", name)
+            or name in subnets
+        ):
+            raise ValueError("VNet identity is invalid or duplicated")
+        subnets[name] = settled(
+            get(f"/cluster/sdn/vnets/{name}/subnets", "--pending", "1")
+        )
+    guests = get("/cluster/resources", "--type", "vm")
+    if not isinstance(guests, list) or len(guests) > 4096:
+        raise ValueError("Guest inventory is incomplete or excessive")
+    configs = {}
+    for guest in guests:
+        if (
+            not isinstance(guest, dict)
+            or guest.get("type") not in {"qemu", "lxc"}
+            or type(guest.get("vmid")) is not int
+            or guest["vmid"] <= 0
+            or guest.get("node") not in nodes
+        ):
+            raise ValueError("Guest identity cannot be safely addressed")
+        key = f"{guest['type']}/{guest['vmid']}"
+        if key in configs:
+            raise ValueError("Duplicate guest identity")
+        path = f"/nodes/{guest['node']}/{key}"
+        configs[key] = {
+            "current": get(path + "/config", "--current", "1"),
+            "pending": get(path + "/pending"),
+        }
+    # Discovery must remain stable while all configuration reads are completed.
+    after = get("/cluster/resources", "--type", "vm")
+
+    def identity(rows):
+        return sorted(
+            (row.get("type"), row.get("vmid"), row.get("node")) for row in rows
+        )
+
+    if (
+        not isinstance(after, list)
+        or any(not isinstance(row, dict) for row in after)
+        or identity(after) != identity(guests)
+    ):
+        raise ValueError("Guest inventory changed during attachment inspection")
+    scope = delete_scope(
+        {
+            "zone": document.get("zone"),
+            "status": status,
+            "features": features,
+            "families": families,
+            "subnets": subnets,
+            "guests": guests,
+            "guest_configs": configs,
+        }
+    )
+    scope["cluster_identity"] = cluster_identity
+    return {"scope": scope, "node": node, "privileged": True}
+
+
+def delete_scope(document):
+    """Resolve one complete zone deletion from privileged read-only inventory."""
+    nodes, _ = cluster_nodes(document.get("status"))
+    zone = document.get("zone")
+    if not isinstance(zone, str) or not re.fullmatch(r"[A-Za-z][A-Za-z0-9]{1,7}", zone):
+        raise ValueError("Deletion requires one explicit zone name")
+    features = document.get("features")
+    required = {"zones", "vnets", "controllers", "ipams", "dns"}
+    supported = required | {"fabrics", "prefix-lists", "route-maps"}
+    if not isinstance(features, list) or any(not isinstance(x, str) for x in features):
+        raise ValueError("SDN feature inventory is unreadable")
+    if (
+        len(features) != len(set(features))
+        or not required <= set(features) <= supported
+    ):
+        raise ValueError("Unsupported or incomplete SDN feature coverage")
+    families, subnets = document.get("families"), document.get("subnets")
+    if (
+        not isinstance(families, dict)
+        or set(families) != set(features)
+        or not isinstance(subnets, dict)
+    ):
+        raise ValueError("Every advertised SDN family must be read")
+
+    def rows(value):
+        if (
+            not isinstance(value, list)
+            or len(value) > 4096
+            or any(not isinstance(x, dict) for x in value)
+        ):
+            raise ValueError("Malformed or excessive inventory rows")
+        return value
+
+    def settled(value):
+        for row in rows(value):
+            if row.get("state") not in (None, "unchanged") or row.get(
+                "pending"
+            ) not in (None, {}):
+                raise ValueError(
+                    "Pending SDN changes require separate review before deletion"
+                )
+        return value
+
+    for name, value in families.items():
+        if name == "fabrics":
+            if not isinstance(value, dict) or set(value) != {"fabrics", "nodes"}:
+                raise ValueError("Incomplete fabric coverage")
+            settled(value["fabrics"])
+            settled(value["nodes"])
+        else:
+            settled(value)
+    zones = families["zones"]
+    zone_names = [row.get("zone") for row in zones]
+    if any(not isinstance(name, str) for name in zone_names) or len(
+        set(zone_names)
+    ) != len(zone_names):
+        raise ValueError("Zone bindings are incomplete or duplicated")
+    selected_zone = [row for row in zones if row["zone"] == zone]
+    if selected_zone and selected_zone[0].get("type") != "simple":
+        raise ValueError("Deletion preservation currently supports simple zones")
+    selected_nodes = (
+        sorted(members(selected_zone[0].get("nodes"), nodes)) if selected_zone else []
+    )
+    vnets = families["vnets"]
+    names = [row.get("vnet") for row in vnets]
+    if (
+        any(
+            not isinstance(name, str)
+            or not re.fullmatch(r"[A-Za-z][A-Za-z0-9]{1,7}", name)
+            for name in names
+        )
+        or len(set(names)) != len(names)
+        or set(subnets) != set(names)
+        or any(row.get("zone") not in zone_names for row in vnets)
+    ):
+        raise ValueError(
+            "Every VNet needs one authoritative zone and complete subnet coverage"
+        )
+    selected_vnets = sorted(row["vnet"] for row in vnets if row["zone"] == zone)
+    if len(selected_vnets) > 64:
+        raise ValueError("One bounded deletion supports at most 64 selected VNets")
+    all_subnets = []
+    for vnet in sorted(subnets):
+        for row in settled(subnets[vnet]):
+            identifier = row.get("subnet")
+            if not isinstance(identifier, str) or not re.fullmatch(
+                r"[A-Za-z0-9_.:-]{1,128}", identifier
+            ):
+                raise ValueError("Subnet identity is missing or unsafe")
+            source = row.get("cidr")
+            if (
+                not isinstance(source, str)
+                or str(ipaddress.ip_network(source, strict=True)) != source
+            ):
+                raise ValueError(
+                    "Every subnet requires an authoritative canonical CIDR"
+                )
+            all_subnets.append(
+                {
+                    "subnet": identifier,
+                    "subnet_vnet": vnet,
+                    "subnet_cidr": row.get("cidr"),
+                }
+            )
+    all_subnets.sort(key=lambda row: (row["subnet_vnet"], row["subnet"]))
+    selected = [row for row in all_subnets if row["subnet_vnet"] in selected_vnets]
+    sources = cidrs([row["subnet_cidr"] for row in selected])
+    if any(
+        sum(row["subnet_cidr"] == source for row in all_subnets) != 1
+        for source in sources
+    ):
+        raise ValueError(
+            "Selected source CIDRs must have unique cluster-wide ownership"
+        )
+    if len({(row["subnet_vnet"], row["subnet"]) for row in all_subnets}) != len(
+        all_subnets
+    ):
+        raise ValueError("Duplicate subnet identities")
+
+    guests, configs = rows(document.get("guests")), document.get("guest_configs")
+    if not isinstance(configs, dict):
+        raise ValueError("Guest configuration coverage is unreadable")
+    keys = []
+    for guest in guests:
+        if (
+            guest.get("type") not in ("qemu", "lxc")
+            or type(guest.get("vmid")) is not int
+            or guest["vmid"] <= 0
+            or guest.get("node") not in nodes
+        ):
+            raise ValueError("Guest inventory identity is incomplete")
+        key = f"{guest['type']}/{guest['vmid']}"
+        keys.append(key)
+        config = configs.get(key)
+        if not isinstance(config, dict) or not isinstance(config.get("current"), dict):
+            raise ValueError("Every guest needs current and pending configuration")
+        definitions = list(config["current"].items())
+        for pending in rows(config.get("pending")):
+            if not isinstance(pending.get("key"), str):
+                raise ValueError("Malformed pending guest configuration")
+            definitions.extend(
+                (pending["key"], pending[name])
+                for name in ("value", "pending")
+                if name in pending
+            )
+        for name, value in definitions:
+            if name == "args" or name == "lxc" or name.startswith("lxc."):
+                if value:
+                    raise ValueError(
+                        "Custom guest networking cannot prove safe detachment"
+                    )
+            if not re.fullmatch(r"net[0-9]+", name):
+                continue
+            if not isinstance(value, str) or len(value) > 8192:
+                raise ValueError("Guest NIC configuration is unreadable")
+            bridges = [
+                part.split("=", 1)[1]
+                for part in value.split(",")
+                if part.startswith("bridge=")
+            ]
+            if len(bridges) > 1:
+                raise ValueError("Ambiguous guest bridge configuration")
+            if any(bridge in selected_vnets for bridge in bridges):
+                raise ValueError(
+                    "A current or pending guest NIC is attached to the selected zone"
+                )
+    if len(keys) != len(set(keys)) or set(keys) != set(configs):
+        raise ValueError("Guest configuration coverage is incomplete")
+
+    def inventory_hash(selected_families, selected_subnets):
+        def normalized(value):
+            if isinstance(value, dict):
+                return {key: normalized(rows) for key, rows in value.items()}
+            cleaned = [
+                {
+                    key: item
+                    for key, item in row.items()
+                    if key not in {"digest", "state", "pending"}
+                }
+                for row in value
+            ]
+            return sorted(cleaned, key=lambda row: json.dumps(row, sort_keys=True))
+
+        canonical = json.dumps(
+            {
+                "families": normalized(selected_families),
+                "subnets": normalized(selected_subnets),
+            },
+            sort_keys=True,
+            separators=(",", ":"),
+        )
+        return hashlib.sha256(canonical.encode()).hexdigest()
+
+    remaining = {
+        **families,
+        "zones": [row for row in zones if row["zone"] != zone],
+        "vnets": [row for row in vnets if row["vnet"] not in selected_vnets],
+    }
+    return {
+        "version": 1,
+        "zone": zone,
+        "zone_present": bool(selected_zone),
+        "zone_nodes": selected_nodes,
+        "cluster_nodes": sorted(nodes),
+        "vnets": selected_vnets,
+        "subnets": selected,
+        "desired_sources": [
+            {
+                "source": row["subnet_cidr"],
+                "vnet": row["subnet_vnet"],
+                "zone": zone,
+                "want": 0,
+            }
+            for row in selected
+        ],
+        "known_subnets": all_subnets,
+        "inventory_sha256": inventory_hash(families, subnets),
+        "remaining_sha256": inventory_hash(
+            remaining,
+            {key: rows for key, rows in subnets.items() if key not in selected_vnets},
+        ),
+    }
+
+
 def source_counts(document):
     """Expose only counts from every verified snapshot; never invoke iptables."""
     source = cidrs([document.get("source")])[0]
@@ -351,6 +777,14 @@ def main():
         result = plan(document)
     elif sys.argv[1:] == ["zone-nodes"]:
         result = zone_nodes(document)
+    elif sys.argv[1:] == ["cluster-identity"]:
+        result = {
+            "cluster_identity": certificate_identity(document.get("certificates"))
+        }
+    elif sys.argv[1:] == ["read-delete"]:
+        result = read_delete(document)
+    elif sys.argv[1:] == ["delete-scope"]:
+        result = delete_scope(document)
     elif sys.argv[1:] == ["count-source"]:
         result = source_counts(document)
     elif sys.argv[1:] == ["collect"]:

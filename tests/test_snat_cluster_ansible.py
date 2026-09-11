@@ -47,6 +47,7 @@ def run_cluster(
     caller_tasks=None,
     fixture_role_tasks=None,
     target_counts=None,
+    deletion_fixture=None,
 ):
     role = tmp_path / "roles/range42-ansible_roles-proxmox_controller"
     (role / "tasks/include/network").mkdir(parents=True)
@@ -112,6 +113,8 @@ def run_cluster(
         document["status"].append(
             {"type": "cluster", "name": "fixture", "nodes": len(indices), "quorate": 1}
         )
+    if deletion_fixture is not None:
+        document["deletion_fixture"] = deletion_fixture
     api_fixture = tmp_path / "api.json"
     api_fixture.write_text(json.dumps(document))
 
@@ -149,7 +152,13 @@ def run_cluster(
             if fixture_role_tasks
             else ""
         )
-        + """- ansible.builtin.include_tasks: include/network/count_network_snat_source.yaml
+        + """- ansible.builtin.include_tasks: include/network/delete_network_sdn_subnet.yaml
+  when: proxmox_vm_action == 'network_delete_sdn_subnet'
+- ansible.builtin.include_tasks: include/network/delete_network_sdn_vnet.yaml
+  when: proxmox_vm_action == 'network_delete_sdn_vnet'
+- ansible.builtin.include_tasks: include/network/delete_network_sdn_zone.yaml
+  when: proxmox_vm_action == 'network_delete_sdn_zone'
+- ansible.builtin.include_tasks: include/network/count_network_snat_source.yaml
   when: proxmox_vm_action == 'network_count_snat_source'
 - ansible.builtin.include_tasks: include/network/apply_network_sdn.yaml
   when: proxmox_vm_action == 'network_apply_sdn'
@@ -166,7 +175,13 @@ import json,pathlib,urllib.parse
 m=AnsibleModule(argument_spec={'url':{'type':'str'},'method':{'type':'str'},'fixture_file':{'type':'str'}})
 fixture=json.loads(pathlib.Path(m.params['fixture_file']).read_text());url=urllib.parse.urlsplit(m.params['url']);path=url.path;query=urllib.parse.parse_qs(url.query)
 marker=pathlib.Path(fixture['apply_marker'])
-if path.endswith('/cluster/status'): data=fixture['status']
+if m.params['method']=='DELETE' and fixture.get('deletion_fixture') is not None:
+ log=pathlib.Path(fixture['deletion_fixture']['log']);history=json.loads(log.read_text()) if log.exists() else []
+ if fixture['deletion_fixture'].get('fail_at')==len(history)+1: m.fail_json(msg='Fixture deletion failed',status=500)
+ history.append(path);log.write_text(json.dumps(history))
+ if '/zones/' in path: fixture['zones']=[row for row in fixture['zones'] if row['zone']!=path.split('/')[-1]];pathlib.Path(m.params['fixture_file']).write_text(json.dumps(fixture))
+ data=None
+elif path.endswith('/cluster/status'): data=fixture['status']
 elif path.endswith('/cluster/sdn/zones'): data=fixture['zones']
 elif path.endswith('/access/permissions'):
  aclpath=query['path'][0];data={aclpath:{} if fixture['denied_audit'] and aclpath=='/nodes/pve2' else {'Sys.Audit':0}}

@@ -1,0 +1,65 @@
+---
+- name: NETWORK - DELETE - REQUIRE ONE MAPPED READ COORDINATOR
+  ansible.builtin.assert:
+    that:
+      - ansible_play_hosts_all | length == 1
+      - proxmox_node is string
+      - groups['proxmox_cli'] | default([]) | length > 0
+      - (sdn_snat_node_hosts | default({})).get(proxmox_node, '') in (groups['proxmox_cli'] | default([])) or (sdn_snat_node_hosts | default({}) | length == 0 and groups['proxmox_cli'] | length == 1)
+    fail_msg: Deletion inspection requires one explicit mapped PVE SSH coordinator.
+
+- name: NETWORK - DELETE - READ COMPLETE ROOT-VISIBLE INVENTORY
+  ansible.builtin.command:
+    argv:
+      - python3
+      - -c
+      - "{{ lookup('file', role_path ~ '/files/snat_cluster.py') }}"
+      - read-delete
+    stdin: "{{ {'zone': sdn_zone, 'node': proxmox_node} | to_json }}"
+  environment:
+    PATH: /usr/sbin:/sbin:/usr/bin:/bin
+  delegate_to: "{{ (sdn_snat_node_hosts | default({})).get(proxmox_node, groups['proxmox_cli'] | first) }}"
+  register: _sdn_delete_read
+  changed_when: false
+  failed_when: false
+  no_log: true
+
+- name: NETWORK - DELETE - REQUIRE COMPLETE UNATTACHED SETTLED SCOPE
+  ansible.builtin.assert:
+    that: _sdn_delete_read.rc == 0
+    fail_msg: Complete privileged SDN/guest inventory could not prove an unattached zone without pending changes. No declaration write is authorized.
+
+- name: NETWORK - DELETE - RETAIN ONLY SANITIZED SCOPE
+  ansible.builtin.set_fact:
+    network_plan_sdn_delete: "{{ _sdn_delete_read.stdout | from_json }}"
+  no_log: true
+
+- name: NETWORK - DELETE - READ API CLUSTER CA IDENTITY
+  ansible.builtin.uri:
+    url: "https://{{ proxmox_api_host }}/api2/json/nodes/{{ proxmox_node }}/certificates/info"
+    method: GET
+    headers:
+      Authorization: "PVEAPIToken={{ proxmox_api_user }}!{{ proxmox_api_token_id }}={{ proxmox_api_token_secret }}"
+    validate_certs: "{{ proxmox_api_validate_certs | default(true) }}"
+  register: _sdn_delete_api_ca
+  no_log: true
+
+- name: NETWORK - DELETE - VALIDATE THE API CLUSTER IDENTITY
+  ansible.builtin.command:
+    argv:
+      - python3
+      - -c
+      - "{{ lookup('file', role_path ~ '/files/snat_cluster.py') }}"
+      - cluster-identity
+    stdin: "{{ {'certificates': _sdn_delete_api_ca.json.data} | to_json }}"
+  register: _sdn_delete_api_identity
+  changed_when: false
+  failed_when: false
+  no_log: true
+
+- name: NETWORK - DELETE - REQUIRE API AND PRIVILEGED SSH TO TARGET THE SAME CLUSTER
+  ansible.builtin.assert:
+    that:
+      - _sdn_delete_api_identity.rc == 0
+      - (_sdn_delete_api_identity.stdout | from_json).cluster_identity == network_plan_sdn_delete.scope.cluster_identity
+    fail_msg: The API and mapped privileged SSH node must prove the same cluster CA identity before any deletion.

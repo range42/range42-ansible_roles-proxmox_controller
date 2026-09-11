@@ -182,6 +182,43 @@ checks also passed in 35.70 seconds, with 24 deselected
 Scoped Ruff, formatting and whitespace checks pass. Independent review found
 no mutation-scope issue. No live operation or capability marker changed.
 
+## Guarded deletion source continuation
+
+The paired `delete.all` continuation adds privileged read-only planning and a
+private journal, reusing the existing snapshot/apply/reconcile/restore actions.
+The before-write scope proves canonical unique source ownership, full pending
+family coverage, unattached current/pending guest NICs and matching API/SSH
+cluster CA identity. Original source/node scope remains available after its
+zone declarations disappear. A final remaining-inventory hash checks unrelated
+declarations after apply; original node policies preserve nonmember rules.
+
+Journal commits `0a05e63` and `43e48cd` contain only the helper and tests. A stable
+operator-owned `RANGE42_SDN_DELETE_STATE_DIR` is required across CLI/backend
+attempts. Version 2 records bind to the cluster root CA and one root-wide lock
+excludes overlapping delete operations across zones. Incomplete evidence blocks
+even an absent-zone retry. Automatic partial-delete resume/rollback and runtime
+installer wiring remain unimplemented; retained evidence requires operator
+review. Other SDN and guest NIC writers still require coordination.
+
+Controller handle65380 passed 154 scoped tests in 33.68s, covering deletion
+scope, bounded collector, actual role API/SSH identity, journal and existing
+planner/count helpers. Paired handle95934 passed 9 actual Ansible cases in
+96.32s, covering success, untouched/nonmember rules, invalid scope, changed
+membership, partial deletion, failed reload, completed repeat and incomplete
+retry refusal. Independent review's row-order regression then failed before
+canonical subnet sorting; all 34 affected scope cases pass afterward. Logs:
+`/tmp/r42-delete-controller-final.log`, `/tmp/r42-delete-paired-final.log`,
+`/tmp/r42-delete-order-green.log`. Scoped lint and descriptor generation pass.
+
+The root's separate read-only trial of frozen helper
+`bbf7d342614c29d6324738bed444da6bd20786132cb61680d10ea38d0b73e2ad` on the
+47-guest lab refused after 118.26s with an inventory-command timeout; it accepted
+no scope and performed no writes. This is an unresolved real-target performance
+limitation at this checkpoint, not passing live acceptance. Detailed contracts,
+source URLs and subsequent trace results belong in the paired playbooks
+`docs/sdn-delete-all-source-checkpoint.md`. No mutation or runtime activation
+has been authorized by these source tests.
+
 ## Required next implementation
 
 1. Completed for the five bootstrap/internet/apply composites in the paired
@@ -195,12 +232,12 @@ no mutation-scope issue. No live operation or capability marker changed.
    unrelated list operations do not expand preservation tasks prematurely.
 2. Remaining older controller action fixtures need adaptation and full matched
    release review. Subsequent paired work adapts `bootstrap.sdn_vnet` and the
-   standalone `reconcile.snat_rules` entrypoint. `delete.all` still uses the
-   legacy primary-node cleanup flow and can delete declarations before an
-   unproven apply is refused. It requires retained pre-delete source and node
-   scope, explicit attachment/pending-change policy and preservation before
-   activation. Capability markers remain unchanged. This bounded continuation
-   does not claim a passing full controller suite or a deployable release.
+   standalone `reconcile.snat_rules` entrypoint. The guarded deletion source
+   now retains pre-delete scope with attachment/pending review and all-node
+   preservation; its real-target read-only performance, installer state wiring
+   and matched mutation acceptance remain pending. Capability markers remain
+   unchanged. This bounded continuation does not claim a passing full controller
+   suite or a deployable release.
 3. Review node mapping changes, selected zone membership changes, SSH identity
    expectations and limits before any matched release/acceptance. Inventory
    configuration remains trusted; no discovery of SSH credentials is implied.

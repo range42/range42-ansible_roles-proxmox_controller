@@ -421,6 +421,14 @@
   ansible.builtin.include_tasks: "./include/network/apply_network_sdn.yaml"
   when: proxmox_vm_action == "network_apply_sdn"
 
+- name: INCLUDE - ./include/network/sdn_delete_journal.yaml
+  ansible.builtin.include_tasks: "./include/network/sdn_delete_journal.yaml"
+  when: proxmox_vm_action == "network_sdn_delete_journal"
+
+- name: INCLUDE - ./include/network/plan_sdn_delete.yaml
+  ansible.builtin.include_tasks: "./include/network/plan_sdn_delete.yaml"
+  when: proxmox_vm_action == "network_plan_sdn_delete"
+
 - name: INCLUDE - ./include/network/count_network_snat_source.yaml
   ansible.builtin.include_tasks: "./include/network/count_network_snat_source.yaml"
   when: proxmox_vm_action == "network_count_snat_source"
