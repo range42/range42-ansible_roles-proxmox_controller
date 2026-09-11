@@ -46,6 +46,7 @@ def run_cluster(
     recover_failed_apply=False,
     caller_tasks=None,
     fixture_role_tasks=None,
+    target_counts=None,
 ):
     role = tmp_path / "roles/range42-ansible_roles-proxmox_controller"
     (role / "tasks/include/network").mkdir(parents=True)
@@ -60,8 +61,9 @@ def run_cluster(
         state, writes, environment = fake_rules.__wrapped__(directory)
         state.write_text(
             json.dumps(
-                [UNRELATED, OTHER_RULE, TARGET_RULE]
-                + ([TARGET_RULE] if duplicate_target else [])
+                [UNRELATED, OTHER_RULE]
+                + [TARGET_RULE]
+                * ((target_counts or {}).get(node, 2 if duplicate_target else 1))
             )
         )
         environment["R42_TEST_NODE"] = "wrong" if wrong_host and index == 2 else node
@@ -147,7 +149,9 @@ def run_cluster(
             if fixture_role_tasks
             else ""
         )
-        + """- ansible.builtin.include_tasks: include/network/apply_network_sdn.yaml
+        + """- ansible.builtin.include_tasks: include/network/count_network_snat_source.yaml
+  when: proxmox_vm_action == 'network_count_snat_source'
+- ansible.builtin.include_tasks: include/network/apply_network_sdn.yaml
   when: proxmox_vm_action == 'network_apply_sdn'
 - ansible.builtin.include_tasks: include/network/preserve_network_snat_rules.yaml
   when: proxmox_vm_action in ['network_snapshot_snat_rules', 'network_restore_snat_snapshot', 'network_reconcile_snat_sources']

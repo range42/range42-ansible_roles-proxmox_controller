@@ -1,0 +1,28 @@
+---
+# Inspect the verified per-node snapshot receipts without executing any rule action.
+- name: NETWORK - SNAT - VALIDATE COMPLETE SOURCE COUNTS
+  ansible.builtin.command:
+    argv:
+      - python3
+      - -c
+      - "{{ lookup('file', role_path ~ '/files/snat_cluster.py') }}"
+      - count-source
+    stdin: >-
+      {{ {'source': sdn_subnet_cidr, 'plan': network_snat_plan | default(none),
+          'snapshots': network_snat_snapshots | default(none),
+          'snapshot_verified': network_snat_snapshot_verified | default(none),
+          'apply_attempted': network_snat_apply_attempted | default(none),
+          'apply_verified': network_snat_apply_verified | default(none)} | to_json }}
+  register: _sdn_source_counts
+  changed_when: false
+  failed_when: false
+  no_log: true
+
+- name: NETWORK - SNAT - REQUIRE VERIFIED COUNT RECEIPTS
+  ansible.builtin.assert:
+    that: _sdn_source_counts.rc == 0
+    fail_msg: Source counts require a canonical CIDR and complete fresh node snapshots; no rule changes were attempted.
+
+- name: NETWORK - SNAT - REPORT COUNTS WITHOUT RAW RULES
+  ansible.builtin.set_fact:
+    network_count_snat_source: "{{ _sdn_source_counts.stdout | from_json }}"

@@ -151,6 +151,37 @@ The zone wire schema uses the `pve-node-list` string option in
 consumed by the `nodes` property in
 [the SDN zone plugin](https://github.com/proxmox/pve-network/blob/master/src/PVE/Network/SDN/Zones/Plugin.pm).
 
+## Explicit read-only source counts
+
+The paired standalone reconciliation continuation adds `count-source` to
+`snat_cluster.py` and the `network_count_snat_source` role action. It validates
+canonical IPv4 source, complete unique node coverage, snapshot identities and
+positive observation timestamps, strict nonnegative counts, and the supplied
+verified/no-apply fact state. It returns only source, primary node and per-node
+count/timestamp fields. It executes no iptables command and does not independently
+enforce receipt age. The standalone caller ensures freshness by clearing old
+facts and immediately collecting a new complete cluster snapshot before calling
+it; node observations are not an atomic cluster measurement.
+
+WANT99 uses this action even after a declaration has been deleted. WANT0/1 in
+the paired bundle resolves authoritative source/VNet/zone bindings, requires
+matching declared SNAT, refuses missing enabled rules before cleanup and reuses
+the existing stable reconciliation gate. The older strict single-source helper
+continues to accept only 0/1; no arbitrary high-value mutation path is introduced.
+
+The positive helper regression failed before the operation existed. Twelve
+new count cases plus 36 existing planner cases passed in 1.88 seconds
+(`/tmp/r42-snat-counts-green.log`). All 23 paired standalone boundary/actual
+Ansible cases passed in 77.94 seconds
+(`/tmp/r42-standalone-reconcile-final.log`), including 105-rule read-only counts,
+post-deletion inspection, invalid/missing coverage and preservation of unrelated
+and nonmember rules. The role fixture gains only an optional initial count and
+the new action dispatcher. Three existing real-Ansible default/stable flow
+checks also passed in 35.70 seconds, with 24 deselected
+(`/tmp/r42-standalone-controller-dispatch-check.log`, handle64685 exit0).
+Scoped Ruff, formatting and whitespace checks pass. Independent review found
+no mutation-scope issue. No live operation or capability marker changed.
+
 ## Required next implementation
 
 1. Completed for the five bootstrap/internet/apply composites in the paired
@@ -163,12 +194,13 @@ consumed by the `nodes` property in
    The fixture dispatcher was narrowed to the actual production action list so
    unrelated list operations do not expand preservation tasks prematurely.
 2. Remaining older controller action fixtures need adaptation and full matched
-   release review. Legacy `bootstrap.sdn_vnet`, `delete.all` and standalone
-   `reconcile.snat_rules` playbooks still use primary-node flows; they must be
-   guarded or adapted before activation, since some can write declarations
-   before an unproven apply is refused. Capability markers remain unchanged.
-   This bounded continuation does not claim a passing full controller suite
-   or a compatible deployable release.
+   release review. Subsequent paired work adapts `bootstrap.sdn_vnet` and the
+   standalone `reconcile.snat_rules` entrypoint. `delete.all` still uses the
+   legacy primary-node cleanup flow and can delete declarations before an
+   unproven apply is refused. It requires retained pre-delete source and node
+   scope, explicit attachment/pending-change policy and preservation before
+   activation. Capability markers remain unchanged. This bounded continuation
+   does not claim a passing full controller suite or a deployable release.
 3. Review node mapping changes, selected zone membership changes, SSH identity
    expectations and limits before any matched release/acceptance. Inventory
    configuration remains trusted; no discovery of SSH credentials is implied.

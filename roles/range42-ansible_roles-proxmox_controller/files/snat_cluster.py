@@ -203,6 +203,60 @@ def zone_nodes(document):
     return {"nodes": None if selected == set(nodes) else ",".join(sorted(selected))}
 
 
+def source_counts(document):
+    """Expose only counts from every verified snapshot; never invoke iptables."""
+    source = cidrs([document.get("source")])[0]
+    plan, snapshots = document.get("plan"), document.get("snapshots")
+    if (
+        document.get("snapshot_verified") is not True
+        or document.get("apply_attempted") is not False
+        or document.get("apply_verified") is not False
+        or not isinstance(plan, dict)
+        or plan.get("version") != 1
+        or not isinstance(plan.get("nodes"), list)
+        or not 1 <= len(plan["nodes"]) <= 64
+        or any(not isinstance(node, dict) for node in plan["nodes"])
+        or not isinstance(snapshots, dict)
+    ):
+        raise ValueError(
+            "Counts require a complete fresh snapshot with no apply attempt"
+        )
+    names = [node.get("node") for node in plan["nodes"]]
+    if (
+        any(not isinstance(name, str) for name in names)
+        or len(set(names)) != len(names)
+        or set(snapshots) != set(names)
+        or plan.get("primary_node") not in names
+    ):
+        raise ValueError("Counts require exact mapped node coverage")
+    result = []
+    for name in names:
+        snapshot = snapshots[name]
+        if (
+            not isinstance(snapshot, dict)
+            or snapshot.get("version") != 1
+            or not isinstance(snapshot.get("node"), str)
+            or snapshot["node"] != name
+            and snapshot["node"].split(".")[0] != name
+            or type(snapshot.get("captured_at")) is not int
+            or snapshot["captured_at"] <= 0
+            or not isinstance(snapshot.get("nat_counts"), dict)
+        ):
+            raise ValueError("A mapped node snapshot cannot prove its count")
+        count = snapshot["nat_counts"].get(source, 0)
+        if type(count) is not int or count < 0:
+            raise ValueError("A source count must be a nonnegative integer")
+        result.append(
+            {"node": name, "count": count, "captured_at": snapshot["captured_at"]}
+        )
+    return {
+        "source": source,
+        "primary_node": plan["primary_node"],
+        "read_only": True,
+        "nodes": result,
+    }
+
+
 def collect(document):
     expected = {node["node"]: node for node in document["plan"]["nodes"]}
     results = document.get("results")
@@ -297,6 +351,8 @@ def main():
         result = plan(document)
     elif sys.argv[1:] == ["zone-nodes"]:
         result = zone_nodes(document)
+    elif sys.argv[1:] == ["count-source"]:
+        result = source_counts(document)
     elif sys.argv[1:] == ["collect"]:
         result = collect(document)
     elif sys.argv[1:] in (["reload-baseline"], ["reload-completion"]):
