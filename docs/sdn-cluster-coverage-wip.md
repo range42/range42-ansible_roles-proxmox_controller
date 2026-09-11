@@ -1,11 +1,12 @@
 # Incomplete cluster coverage checkpoint — do not activate
 
 This continuation starts at controller `e7a7332` in
-`/tmp/r42-sdn-controller-preservation-next-wave`. Paired playbooks remain
+`/tmp/r42-sdn-controller-preservation-next-wave`. Paired playbooks started at
 `fb536e79ea969de6378e3cd272f75b878b0a03b3` in
-`/tmp/r42-sdn-preservation-next-wave`; their production source has not been
-updated for this continuation. The user requested a checkpoint before further
-implementation. No live SSH, firewall, SDN or release mutation was performed.
+`/tmp/r42-sdn-preservation-next-wave`; the subsequent bounded composite
+continuation is recorded below and in that checkout's
+`docs/sdn-cluster-composites.md`. No live SSH, firewall, SDN or release mutation
+was performed.
 
 ## Implemented and tested primitives
 
@@ -98,18 +99,22 @@ Log: `/tmp/r42-snat-apply-completion-final.log`. Scoped Ruff and `git diff
 
 ## Required next implementation
 
-1. Wire the playbooks composites to supply desired `{source,vnet,zone,want}`
-   entries and new-zone membership at snapshot, calculate missing-enabled
-   conditions across all applicable nodes, and call
-   `network_reconcile_snat_sources` instead of the old primary-node operation.
-   Internet composites need an authoritative VNet-to-zone binding. Require
-   actual cluster snapshot coverage before their first write, so old controller
-   versions cannot silently ignore the new contract.
-2. Adapt older single-node action fixtures to the new included files/API reads
-   and output. Run matched composite orchestration tests and update capability
-   markers/parameter docs only after that integration passes. This bounded
-   controller continuation does not claim a passing full controller suite or
-   a compatible playbooks release.
+1. Completed for the five bootstrap/internet/apply composites in the paired
+   continuation: exact `{source,vnet,zone,want}` intent, new-zone membership,
+   authoritative VNet-zone bindings, all-applicable-node missing-enabled checks,
+   plural reconciliation and complete snapshot proof before first write.
+   Twelve new composite/planner regressions, sixteen adapted existing scoped
+   cases, and two paired actual-controller cases pass. The paired stable and
+   verified-apply cases preserve nonmember and unrelated rule identities/order.
+   The fixture dispatcher was narrowed to the actual production action list so
+   unrelated list operations do not expand preservation tasks prematurely.
+2. Remaining older controller action fixtures need adaptation and full matched
+   release review. Legacy `bootstrap.sdn_vnet`, `delete.all` and standalone
+   `reconcile.snat_rules` playbooks still use primary-node flows; they must be
+   guarded or adapted before activation, since some can write declarations
+   before an unproven apply is refused. Capability markers remain unchanged.
+   This bounded continuation does not claim a passing full controller suite
+   or a compatible deployable release.
 3. Review node mapping changes, selected zone membership changes, SSH identity
    expectations and limits before any matched release/acceptance. Inventory
    configuration remains trusted; no discovery of SSH credentials is implied.

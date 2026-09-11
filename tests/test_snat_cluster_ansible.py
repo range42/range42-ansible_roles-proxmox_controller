@@ -146,7 +146,7 @@ def run_cluster(
         + """- ansible.builtin.include_tasks: include/network/apply_network_sdn.yaml
   when: proxmox_vm_action == 'network_apply_sdn'
 - ansible.builtin.include_tasks: include/network/preserve_network_snat_rules.yaml
-  when: proxmox_vm_action != 'network_apply_sdn'
+  when: proxmox_vm_action in ['network_snapshot_snat_rules', 'network_restore_snat_snapshot', 'network_reconcile_snat_sources']
 """
     )
     library = tmp_path / "library"
