@@ -35,8 +35,7 @@ def members(value, nodes):
     return set(selected)
 
 
-def plan(document):
-    status = document.get("status")
+def cluster_nodes(status):
     if (
         not isinstance(status, list)
         or not 1 <= len(status) <= 65
@@ -66,6 +65,11 @@ def plan(document):
         row.get("quorate") != 1 or row.get("nodes") != len(nodes) for row in clusters
     ):
         raise ValueError("Cluster membership or quorum is incomplete")
+    return nodes, clusters
+
+
+def plan(document):
+    nodes, clusters = cluster_nodes(document.get("status"))
     primary = document.get("primary_node")
     if primary not in nodes:
         raise ValueError("The requested node is not a member of this cluster")
@@ -166,6 +170,31 @@ def plan(document):
     }
 
 
+def zone_nodes(document):
+    """Validate the requested membership and encode Proxmox's pve-node-list."""
+    nodes, _ = cluster_nodes(document.get("status"))
+    selected = members(document.get("requested"), nodes)
+    saved, intent = document.get("plan"), document.get("intent")
+    verified = document.get("snapshot_verified")
+    if saved is not None or intent is not None or verified is not None:
+        if (
+            verified is not True
+            or not isinstance(saved, dict)
+            or not isinstance(intent, dict)
+            or not isinstance(saved.get("nodes"), list)
+            or any(not isinstance(node, dict) for node in saved["nodes"])
+            or sorted(node.get("node", "") for node in saved["nodes"]) != sorted(nodes)
+            or not isinstance(intent.get("new_zones"), dict)
+            or document.get("zone") not in intent["new_zones"]
+        ):
+            raise ValueError(
+                "Zone creation requires its current verified snapshot membership"
+            )
+        if selected != members(intent["new_zones"][document["zone"]], nodes):
+            raise ValueError("Zone membership changed after snapshot")
+    return {"nodes": None if selected == set(nodes) else ",".join(sorted(selected))}
+
+
 def collect(document):
     expected = {node["node"]: node for node in document["plan"]["nodes"]}
     results = document.get("results")
@@ -258,6 +287,8 @@ def main():
         raise ValueError("Invalid cluster planning input")
     if sys.argv[1:] == ["plan"]:
         result = plan(document)
+    elif sys.argv[1:] == ["zone-nodes"]:
+        result = zone_nodes(document)
     elif sys.argv[1:] == ["collect"]:
         result = collect(document)
     elif sys.argv[1:] in (["reload-baseline"], ["reload-completion"]):

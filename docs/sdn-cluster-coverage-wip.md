@@ -97,6 +97,30 @@ regressions passed after their fixes. The final focused command passed all
 Log: `/tmp/r42-snat-apply-completion-final.log`. Scoped Ruff and `git diff
 --check` passed. The existing pytest asyncio configuration warning remains.
 
+## Zone-creation request correction
+
+Independent paired review found that the planner accepts a list of new-zone
+members but `add_network_sdn_zone.yaml` forwarded that list into JSON `nodes`.
+The API requires a node-list string. Creation now reads authoritative cluster
+membership and reuses the same member validation as planning. It emits a
+comma-separated string for a subset and omits `nodes` for empty/all-node scope.
+The reported `zone_nodes` uses the same encoded value. If snapshot facts are
+present, the current cluster and requested set must match that verified
+snapshot's new-zone intent before POST; a stale or incomplete proof is refused.
+The raw zone-creation action consequently also requires readable, online,
+quorate cluster membership before creating a declaration.
+
+Eleven actual Ansible/loopback TLS request tests cover list/string/empty/null/
+all-node encoding, invalid or duplicate membership and changed snapshot scope.
+Ten failed before implementation while the existing subset-string case passed
+(`/tmp/r42-zone-membership-red.log`). The fixed command passed 40 tests, including
+those eleven requests and 29 existing planner regressions, in 23.34 seconds
+(`/tmp/r42-zone-membership-green.log`). Three paired bootstrap tests also execute
+the actual creation task and inspect the HTTP JSON body against the saved
+source membership: list and empty inputs failed before the fix; all three now
+pass in 30.00 seconds (`/tmp/r42-paired-zone-green.log`). This is local request
+validation only; no live zone was created. Previous activation limits remain.
+
 ## Required next implementation
 
 1. Completed for the five bootstrap/internet/apply composites in the paired
