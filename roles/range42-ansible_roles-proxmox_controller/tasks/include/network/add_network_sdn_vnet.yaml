@@ -1,0 +1,83 @@
+---
+##
+## SDN - CLUSTER level (not node level).
+##
+## POST /cluster/sdn/vnets
+##
+## Required : sdn_vnet and sdn_zone. The zone must already exist, so this action runs
+## after add_network_sdn_zone.
+##
+## sdn_vnet_alias accepts 256 characters, which is wide enough to hold a scenario name,
+## and its character class is restricted to [\(\)-_.\w\d\s] by the API.
+##
+## sdn_vnet_isolate_ports gives intra vnet isolation for free : the guests of one vnet
+## stop talking to each other without a single firewall rule being written. It is off
+## unless asked for.
+##
+## The created vnet is PENDING until an apply runs. This action does not apply : the
+## apply is asynchronous, returns a UPID and needs polling, so it is its own action.
+##
+
+- block:
+    ####
+    ####
+
+    - name: NETWORK - CLUSTER - ADD SDN VNET
+      uri:
+        url: "https://{{ proxmox_api_host }}/api2/json/cluster/sdn/vnets"
+        method: POST
+        headers:
+          Authorization: "PVEAPIToken={{ proxmox_api_user }}!{{ proxmox_api_token_id }}={{ proxmox_api_token_secret }}"
+        body_format: json
+        body:
+          vnet: "{{ sdn_vnet }}"
+          zone: "{{ sdn_zone }}"
+
+          alias: "{{ sdn_vnet_alias | default(omit) }}"
+          tag: "{{ sdn_vnet_tag | default(omit) }}"
+          vlanaware: "{{ sdn_vnet_vlanaware | default(omit) }}"
+          isolate-ports: "{{ sdn_vnet_isolate_ports | default(omit) }}"
+
+        validate_certs: "{{ proxmox_api_validate_certs | default(false) }}"
+      register: proxmox_call
+
+    ####
+    ####
+
+    - name: NETWORK - CLUSTER - ADD SDN VNET - proxmox_call
+      debug:
+        var: proxmox_call
+
+    ####
+    ####
+
+    - name: NETWORK - CLUSTER - ADD SDN VNET - BUILD JSON
+      set_fact:
+        network_add_sdn_vnet:
+          action: "network_add_sdn_vnet"
+          source: "proxmox"
+          proxmox_node: "{{ proxmox_node }}"
+
+          vnet: "{{ sdn_vnet }}"
+          vnet_zone: "{{ sdn_zone }}"
+          vnet_alias: "{{ sdn_vnet_alias | default(omit) }}"
+          vnet_tag: "{{ sdn_vnet_tag | default(omit) }}"
+          vnet_vlanaware: "{{ sdn_vnet_vlanaware | default(omit) }}"
+          vnet_isolate_ports: "{{ sdn_vnet_isolate_ports | default(omit) }}"
+
+    ####
+    ####
+    ## This debug task is NOT cosmetic : the devkit helper extracts its payload with
+    ##   select(type=="object" and has($action)) | .[$action]
+    ## so a JSON key named EXACTLY like the action must appear in the task results.
+    ## Without it the devkit returns an empty stream and exits 0 (silent failure).
+    ####
+
+    - name: NETWORK - CLUSTER - ADD SDN VNET - PRINT JSON
+      debug:
+        var: network_add_sdn_vnet
+
+  ####
+  ####
+
+  when: proxmox_vm_action == "network_add_sdn_vnet"

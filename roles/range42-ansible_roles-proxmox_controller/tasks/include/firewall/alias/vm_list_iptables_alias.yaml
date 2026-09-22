@@ -1,35 +1,45 @@
 ---
 ##
-## ISSUE - 77
+## LIST THE FIREWALL ALIASES DEFINED ON A GUEST.
 ##
-
+## FOUR fields for four. It used to read `item.iface` - a field of a RULE, never of an alias -
+## into `vm_fw_comment`, which belongs to the rule family too, so `default(omit)` fired and the
+## key vanished. Now `comment`, under the name the sibling add and delete already use, plus
+## `ipversion`. Fixed 2026-09-03.
+##
+## `digest` is NOT a fifth field : `set` and `delete` DO accept it, as a concurrency token to
+## refuse a change if the config moved, but it is not a property of the alias and cannot be
+## chosen. And `ipversion` is DERIVED from the cidr, not writable - measured, `pvesh usage`
+## on the set method lists cidr, comment, digest and rename only. So a rewrite of the same
+## cidr regenerates it : withholding it was a REPORTING gap, never a preservation one. That
+## is what separates an alias from a net line, where the withheld options were really lost.
+##
+## Aliases exist at the datacenter and guest levels only - no node endpoint, measured :
+## `pvesh ls /nodes/<node>/firewall` returns log, options and rules.
+##
 
 - block:
     ####
     ####
 
-    - name: VM LEVEL - LIST FW ALIAS -  FIREWALL RULE
+    - name: FIREWALL - VM - LIST FW ALIAS
       uri:
         url: "https://{{ proxmox_api_host}}/api2/json/nodes/{{ proxmox_node}}/qemu/{{ vm_id }}/firewall/aliases"
         method: GET
         headers:
           Authorization: "PVEAPIToken={{ proxmox_api_user}}!{{ proxmox_api_token_id}}={{ proxmox_api_token_secret}}"
 
-        validate_certs: no
+        validate_certs: "{{ proxmox_api_validate_certs | default(false) }}"
       register: proxmox_call
 
-    - name: PRINT proxmox_call
+    - name: FIREWALL - VM - LIST FW ALIAS - proxmox_call
       debug:
         var: proxmox_call
 
     ####
     ####
 
-    - name: VM LEVEL - LIST FW ALIAS -  PRINT proxmox_call
-      debug:
-        var: proxmox_call
-
-    - name: VM LIST - BUILD JSON
+    - name: FIREWALL - VM - LIST FW ALIAS - BUILD JSON
       set_fact:
         firewall_vm_list_iptables_alias: >- #
           {{ (firewall_vm_list_iptables_alias | default([])) +
@@ -39,16 +49,16 @@
               'proxmox_node':   proxmox_node ,
               'vm_id':   vm_id ,
 
-              'vm_fw_alias_cidr':  ( item.cidr | default(omit)),
-              'vm_fw_alias_name':  ( item.name  | default(omit)),
-              'vm_fw_comment':     ( item.iface | default(omit)), 
-              
+              'vm_fw_alias_name':      ( item.name      | default(omit)),
+              'vm_fw_alias_cidr':      ( item.cidr      | default(omit)),
+              'vm_fw_alias_comment':   ( item.comment   | default(omit)),
+              'vm_fw_alias_ipversion': ( item.ipversion | default(omit)),
             } ] }}
       loop: "{{ proxmox_call.json.data }}"
       loop_control:
         loop_var: item
 
-    - name: VM LEVEL - LIST FW ALIAS -  PRINT JSON
+    - name: FIREWALL - VM - LIST FW ALIAS - PRINT JSON
       debug:
         var: firewall_vm_list_iptables_alias
       when:

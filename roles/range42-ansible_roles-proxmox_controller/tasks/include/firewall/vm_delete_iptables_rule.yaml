@@ -1,8 +1,4 @@
 ---
-##
-## ISSUE - 77
-##
-
 
 - block:
     ####
@@ -15,15 +11,8 @@
         headers:
           Authorization: "PVEAPIToken={{ proxmox_api_user}}!{{ proxmox_api_token_id}}={{ proxmox_api_token_secret}}"
         # #
-        validate_certs: no
+        validate_certs: "{{ proxmox_api_validate_certs | default(false) }}"
       register: proxmox_call
-
-    - name: PRINT proxmox_call
-      debug:
-        var: proxmox_call
-
-    ####
-    ####
 
     - name: VM LEVEL - DELETE RULE - PRINT proxmox_call
       debug:

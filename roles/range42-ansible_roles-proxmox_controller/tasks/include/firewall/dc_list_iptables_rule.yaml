@@ -1,0 +1,75 @@
+---
+##
+## LIST THE FIREWALL RULES OF THE DATACENTER.
+##
+## GET /cluster/firewall/rules
+##
+## The cluster-level counterpart of vm_list_iptables_rule and the read the role had at no
+## level above the guest. Until now the datacenter firewall could only be turned on and
+## off : its rule chain could not be read, which made any guard placed there unverifiable.
+##
+## Proxmox applies the datacenter rules to every node's host chain, so this chain is what
+## covers a node the moment it joins - including a node nobody has configured yet.
+##
+
+- block:
+    ####
+    ####
+
+    - name: FIREWALL - DATACENTER - LIST FW RULES
+      uri:
+        url: "https://{{ proxmox_api_host }}/api2/json/cluster/firewall/rules"
+        method: GET
+        headers:
+          Authorization: "PVEAPIToken={{ proxmox_api_user }}!{{ proxmox_api_token_id }}={{ proxmox_api_token_secret }}"
+        validate_certs: "{{ proxmox_api_validate_certs | default(false) }}"
+      register: proxmox_call
+
+    - name: FIREWALL - DATACENTER - LIST FW RULES - PRINT proxmox_call
+      debug:
+        var: proxmox_call
+
+    ####
+    ## `dc_fw_enable` is emitted like every other field, and it matters more than it looks :
+    ## a rule stored without it is DISABLED by Proxmox, prefixed with a pipe in the file and
+    ## absent from the compiled chain. A reader that ignores it counts dead rules as
+    ## protection.
+    ####
+
+    - name: FIREWALL - DATACENTER - LIST FW RULES - BUILD JSON
+      set_fact:
+        firewall_dc_list_iptables_rule: >-
+          {{ (firewall_dc_list_iptables_rule | default([])) +
+            [ {
+              'action': "firewall_dc_list_iptables_rule",
+              'source': "proxmox",
+              'proxmox_node':   proxmox_node ,
+
+              'dc_fw_action':    ( item.action | default(omit)),
+              'dc_fw_type':      ( item.type | default(omit)),
+              'dc_fw_iface':     ( item.iface | default(omit)),
+              'dc_fw_source':    ( item.source | default(omit)),
+              'dc_fw_dest':      ( item.dest | default(omit)),
+              'dc_fw_proto':     ( item.proto | default(omit)),
+              'dc_fw_dport':     ( item.dport | default(omit)),
+              'dc_fw_sport':     ( item.sport | default(omit)),
+              'dc_fw_enable':    ( item.enable | default(omit)),
+              'dc_fw_comment':   ( item.comment | default(omit)),
+              'dc_fw_pos':       ( item.pos | default(omit)),
+              'dc_fw_log':       ( item.log | default(omit)),
+            } ] }}
+      loop: "{{ proxmox_call.json.data }}"
+      loop_control:
+        loop_var: item
+
+    - name: FIREWALL - DATACENTER - LIST FW RULES - PRINT JSON
+      debug:
+        var: firewall_dc_list_iptables_rule
+      when:
+        - firewall_dc_list_iptables_rule is defined
+        - firewall_dc_list_iptables_rule | length > 0
+
+  ####
+  ####
+
+  when: proxmox_vm_action == "firewall_dc_list_iptables_rule"

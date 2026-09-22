@@ -1,0 +1,58 @@
+---
+##
+## ADD A FIREWALL ALIAS AT THE DATACENTER LEVEL.
+##
+## An alias is a name bound to a cidr, so a rule can say "the management plane" instead of
+## repeating an address. Aliases are a CLUSTER-WIDE and PER-GUEST object : the api exposes
+## them under /cluster/firewall/aliases and under a guest's own firewall, and NOWHERE under
+## a node. That is not a gap in this role - a node-level alias would have nothing to scope,
+## since the datacenter alias is already visible from every node.
+##
+## The datacenter is the level where an alias earns its keep : one definition, reachable from
+## the rules of every node and every guest.
+##
+
+- block:
+    ####
+    ####
+
+    - name: FIREWALL - DATACENTER - ADD FW ALIAS
+      uri:
+        url: "https://{{ proxmox_api_host }}/api2/json/cluster/firewall/aliases"
+        method: POST
+        headers:
+          Authorization: "PVEAPIToken={{ proxmox_api_user }}!{{ proxmox_api_token_id }}={{ proxmox_api_token_secret }}"
+        body_format: json
+        body:
+          name: "{{ dc_fw_alias_name }}"
+          cidr: "{{ dc_fw_alias_cidr }}"
+          comment: "{{ dc_fw_alias_comment | default(omit) }}"
+        validate_certs: "{{ proxmox_api_validate_certs | default(false) }}"
+      register: proxmox_call
+
+    - name: FIREWALL - DATACENTER - ADD FW ALIAS - proxmox_call
+      debug:
+        var: proxmox_call
+
+    ####
+    ####
+
+    - name: FIREWALL - DATACENTER - ADD FW ALIAS - BUILD JSON
+      set_fact:
+        firewall_dc_add_iptables_alias:
+          action: "firewall_dc_add_iptables_alias"
+          source: "proxmox"
+          proxmox_node: "{{ proxmox_node }}"
+
+          dc_fw_alias_name: "{{ dc_fw_alias_name | default(omit) }}"
+          dc_fw_alias_cidr: "{{ dc_fw_alias_cidr | default(omit) }}"
+          dc_fw_alias_comment: "{{ dc_fw_alias_comment | default(omit) }}"
+
+    - name: FIREWALL - DATACENTER - ADD FW ALIAS - PRINT JSON
+      debug:
+        var: firewall_dc_add_iptables_alias
+
+  ####
+  ####
+
+  when: proxmox_vm_action == "firewall_dc_add_iptables_alias"

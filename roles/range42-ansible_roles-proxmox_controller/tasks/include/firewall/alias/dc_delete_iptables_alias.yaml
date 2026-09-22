@@ -1,0 +1,50 @@
+---
+##
+## DELETE ONE FIREWALL ALIAS AT THE DATACENTER LEVEL, BY NAME.
+##
+## >>> AN ALIAS IS ADDRESSED BY NAME, WHICH IS WHY THIS IS SAFE <<<
+## A rule is addressed by its POSITION, and positions renumber after every delete : deleting
+## several rules from a frozen list erases the wrong subset. An alias has no such exposure -
+## its name does not move when a neighbour disappears. The bulk delete built on top of this
+## action is therefore correct by construction, where the rule equivalent is not.
+##
+## Aliases exist at the datacenter and guest levels only. There is no node-level endpoint.
+##
+
+- block:
+    ####
+    ####
+
+    - name: FIREWALL - DATACENTER - DELETE FW ALIAS
+      uri:
+        url: "https://{{ proxmox_api_host }}/api2/json/cluster/firewall/aliases/{{ dc_fw_alias_name }}"
+        method: DELETE
+        headers:
+          Authorization: "PVEAPIToken={{ proxmox_api_user }}!{{ proxmox_api_token_id }}={{ proxmox_api_token_secret }}"
+        validate_certs: "{{ proxmox_api_validate_certs | default(false) }}"
+      register: proxmox_call
+
+    - name: FIREWALL - DATACENTER - DELETE FW ALIAS - proxmox_call
+      debug:
+        var: proxmox_call
+
+    ####
+    ####
+
+    - name: FIREWALL - DATACENTER - DELETE FW ALIAS - BUILD JSON
+      set_fact:
+        firewall_dc_delete_iptables_alias:
+          action: "firewall_dc_delete_iptables_alias"
+          source: "proxmox"
+          proxmox_node: "{{ proxmox_node }}"
+
+          dc_fw_alias_name: "{{ dc_fw_alias_name | default(omit) }}"
+
+    - name: FIREWALL - DATACENTER - DELETE FW ALIAS - PRINT JSON
+      debug:
+        var: firewall_dc_delete_iptables_alias
+
+  ####
+  ####
+
+  when: proxmox_vm_action == "firewall_dc_delete_iptables_alias"

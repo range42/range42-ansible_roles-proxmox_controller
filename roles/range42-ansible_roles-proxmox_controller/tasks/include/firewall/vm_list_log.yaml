@@ -1,0 +1,102 @@
+---
+##
+## READ THE FIREWALL LOG OF ONE GUEST.
+##
+## GET /nodes/{node}/qemu/{vmid}/firewall/log - optional vm_fw_log_limit / _start / _since /
+## _until (since/until are unix epochs), passed through as-is.
+##
+## >>> THIS ENDPOINT IS NOT LISTED BY `pvesh ls` ON THE GUEST <<< Measured : the guest
+## firewall listing shows aliases/ipset/options/refs/rules and no log, yet `usage` answers
+## and `get` returns a response. The listing is an index artifact, not the surface.
+##
+## >>> AN EMPTY LOG IS NOT AN EMPTY LIST <<< Measured : an empty journal returns ONE row
+## {n: 1, t: "no content"}. Published here as zero lines plus one object carrying
+## vm_fw_log_empty - never as one entry.
+##
+## >>> AN EMPTY LOG DOES NOT MEAN NOTHING WAS REFUSED <<< Measured : logging is off by
+## default (no log_level_* in the options), real denies leave no line. Pair this read with
+## firewall_vm_list_options, which reports the log levels.
+##
+## This fact APPENDS across calls - reset it before reading, like the other collectors.
+##
+
+- block:
+    ####
+    ####
+
+    - name: FIREWALL - VM - READ LOG - BUILD THE QUERY
+      set_fact:
+        _fw_log_qs: >-
+          {%- set p = [] -%}
+          {%- if vm_fw_log_limit is defined -%}{%- set _ = p.append('limit=' ~ vm_fw_log_limit) -%}{%- endif -%}
+          {%- if vm_fw_log_start is defined -%}{%- set _ = p.append('start=' ~ vm_fw_log_start) -%}{%- endif -%}
+          {%- if vm_fw_log_since is defined -%}{%- set _ = p.append('since=' ~ vm_fw_log_since) -%}{%- endif -%}
+          {%- if vm_fw_log_until is defined -%}{%- set _ = p.append('until=' ~ vm_fw_log_until) -%}{%- endif -%}
+          {{ ('?' ~ (p | join('&'))) if p else '' }}
+
+    - name: FIREWALL - VM - READ LOG
+      uri:
+        url: "https://{{ proxmox_api_host }}/api2/json/nodes/{{ proxmox_node }}/qemu/{{ vm_id }}/firewall/log{{ _fw_log_qs }}"
+        method: GET
+        headers:
+          Authorization: "PVEAPIToken={{ proxmox_api_user }}!{{ proxmox_api_token_id }}={{ proxmox_api_token_secret }}"
+        validate_certs: "{{ proxmox_api_validate_certs | default(false) }}"
+      register: proxmox_call
+
+    - name: FIREWALL - VM - READ LOG - PRINT proxmox_call
+      debug:
+        var: proxmox_call
+
+    ####
+    ## The single {n: 1, t: "no content"} row is the api's way of saying empty - a real line
+    ## always carries the "<vmid> <level> - <timestamp> <message>" prefix.
+    ####
+
+    - name: FIREWALL - VM - READ LOG - NORMALIZE THE EMPTY JOURNAL
+      set_fact:
+        _fw_log_lines: >-
+          {{ [] if ((proxmox_call.json.data | length) == 1 and
+                    (proxmox_call.json.data[0].t | default('')) == 'no content')
+             else proxmox_call.json.data }}
+
+    - name: FIREWALL - VM - READ LOG - BUILD JSON
+      set_fact:
+        firewall_vm_list_log: >-
+          {{ (firewall_vm_list_log | default([])) +
+            [ {
+              'action': "firewall_vm_list_log",
+              'source': "proxmox",
+              'proxmox_node':   proxmox_node ,
+              'vm_id':          vm_id ,
+
+              'vm_fw_log_n':  ( item.n | default(omit)),
+              'vm_fw_log_t':  ( item.t | default(omit)),
+            } ] }}
+      loop: "{{ _fw_log_lines }}"
+      loop_control:
+        loop_var: item
+
+    - name: FIREWALL - VM - READ LOG - AN EMPTY JOURNAL IS A READING
+      set_fact:
+        firewall_vm_list_log: >-
+          {{ (firewall_vm_list_log | default([])) +
+            [ {
+              'action': "firewall_vm_list_log",
+              'source': "proxmox",
+              'proxmox_node':   proxmox_node ,
+              'vm_id':          vm_id ,
+              'vm_fw_log_empty': true,
+            } ] }}
+      when: (_fw_log_lines | length) == 0
+
+    - name: FIREWALL - VM - READ LOG - PRINT JSON
+      debug:
+        var: firewall_vm_list_log
+      when:
+        - firewall_vm_list_log is defined
+        - firewall_vm_list_log | length > 0
+
+  ####
+  ####
+
+  when: proxmox_vm_action == "firewall_vm_list_log"

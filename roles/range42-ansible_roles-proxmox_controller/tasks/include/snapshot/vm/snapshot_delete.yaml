@@ -1,7 +1,5 @@
 ---
-##
-## PR-20
-##
+
 - block:
     ####
     ####
@@ -15,7 +13,7 @@
         # body_format: json
         # body:
 
-        validate_certs: no
+        validate_certs: "{{ proxmox_api_validate_certs | default(false) }}"
       register: proxmox_call
 
     ####
