@@ -1,0 +1,269 @@
+---
+##
+## #PR-31
+##
+## ENABLE THE DEFAULT SSH RULE SET ON ONE VM : accept 22/tcp inbound, drop the rest.
+##
+## >>> THIS ACTION WAS DEAD <<<
+## The block used to guard on "firewall_vm_enable" while the dispatch includes this file
+## for "firewall_vm_enable_default_ssh_rules". Both conditions can never hold at once, so
+## the block was always skipped and the action had no caller anywhere. An audit of every
+## dispatch entry found this to be the only such contradiction in the role.
+##
+## >>> RULE ORDER IS THE WHOLE SAFETY OF THIS ACTION <<<
+## The Proxmox firewall evaluates rules in order. An ACCEPT on 22 below a DROP on all
+## inbound traffic accepts nothing, and locks ssh out of the guest. Positions are
+## therefore ALWAYS passed explicitly, never left to whatever the API defaults to :
+## the accept goes to position 0, the drop right after it. Do not remove them.
+##
+## Reading the chain first makes the action idempotent. Posting blindly appends another
+## pair on every run, and a firewall chain silently growing duplicates is exactly the
+## problem the SNAT reconciliation exists to undo elsewhere.
+##
+
+##
+## >>> THE SOURCE KNOB EXISTS AND IS UNSET BY DEFAULT <<<
+## `vm_fw_mgmt_source` restricts who may reach ssh on the guest. It defaults to omitted, so
+## out of the box ssh is accepted from anywhere - which is the current decision, taken with
+## the reason recorded : a guest that cannot be reached by the machines that administer it is
+## worse than one reachable too widely, and the switch that arms a guest firewall REFUSES
+## without this accept, so narrowing it before a whitelist exists would refuse every guest.
+##
+## The knob is here so the mechanism is already wired when that whitelist lands : supplying a
+## value is then the only change, at the call site, with no edit to this action.
+##
+
+- block:
+    ####
+    ####
+    ## Read before write : what is already there decides what gets posted.
+    ####
+
+    - name: FIREWALL - VM - ENABLE DEFAULT SSH RULES - READ THE CURRENT CHAIN
+      uri:
+        url: "https://{{ proxmox_api_host }}/api2/json/nodes/{{ proxmox_node }}/qemu/{{ vm_id }}/firewall/rules"
+        method: GET
+        headers:
+          Authorization: "PVEAPIToken={{ proxmox_api_user }}!{{ proxmox_api_token_id }}={{ proxmox_api_token_secret }}"
+        validate_certs: "{{ proxmox_api_validate_certs | default(false) }}"
+      register: proxmox_call_rules
+
+    ####
+    ## WHAT COUNTS AS "ALREADY IN PLACE" IS A POSITION, NOT A PRESENCE.
+    ##
+    ## The old test asked only whether an active accept on 22 existed anywhere in the chain.
+    ## A chain of DROP then ACCEPT satisfies that and grants nothing, so the action reported
+    ## the guest ready while ssh was closed. The accept must be ACTIVE and ABOVE the first
+    ## active deny - the same predicate the three arming guards use.
+    ####
+
+    - name: FIREWALL - VM - ENABLE DEFAULT SSH RULES - WHERE THE CHAIN STARTS DENYING
+      set_fact:
+        ####
+        ## A DENY ONLY COUNTS AGAINST A PORT IF IT CAN REACH IT.
+        ## Measured : an active DROP on another port sitting above an ACCEPT on 22 leaves 22 OPEN.
+        ####
+        _vm_fw_deny_all_pos: >-
+                {{ ((proxmox_call_rules.json.data | default([], true))
+                | selectattr('type', 'defined') | selectattr('type', 'equalto', 'in')
+                | selectattr('action', 'defined') | selectattr('action', 'in', ['DROP', 'REJECT'])
+                | selectattr('enable', 'defined')
+                | rejectattr('enable', 'equalto', 0) | rejectattr('enable', 'equalto', '0')
+                | selectattr('pos', 'defined') | map(attribute='pos') | map('int') | list) }}
+        _vm_fw_deny_other_ssh_pos: >-
+                {{ ((proxmox_call_rules.json.data | default([], true))
+                | selectattr('type', 'defined') | selectattr('type', 'equalto', 'in')
+                | selectattr('action', 'defined') | selectattr('action', 'in', ['DROP', 'REJECT'])
+                | selectattr('enable', 'defined')
+                | rejectattr('enable', 'equalto', 0) | rejectattr('enable', 'equalto', '0')
+                | selectattr('dport', 'defined') | rejectattr('dport', 'none')
+                | selectattr('dport', 'match', '^[0-9]+$')
+                | rejectattr('dport', 'equalto', vm_fw_ssh_port | default('22') | string)
+                | selectattr('pos', 'defined') | map(attribute='pos') | map('int') | list) }}
+        _vm_fw_ssh_first_pos: >-
+          {{ (((proxmox_call_rules.json.data | default([], true))
+                | selectattr('type', 'defined') | selectattr('type', 'equalto', 'in')
+                | selectattr('action', 'defined') | selectattr('action', 'equalto', 'ACCEPT')
+                | selectattr('dport', 'defined') | selectattr('dport', 'equalto', '22')
+                | selectattr('enable', 'defined')
+                | rejectattr('enable', 'equalto', 0) | rejectattr('enable', 'equalto', '0')
+                | selectattr('pos', 'defined') | map(attribute='pos') | map('int') | list)
+              + [99999]) | sort | first }}
+
+    - name: FIREWALL - VM - ENABLE DEFAULT SSH RULES - WHICH DENIES ACTUALLY COVER SSH
+      set_fact:
+        _vm_fw_deny_cover_ssh: "{{ ((_vm_fw_deny_all_pos | difference(_vm_fw_deny_other_ssh_pos)) + [99999]) | sort | first }}"
+
+    - name: FIREWALL - VM - ENABLE DEFAULT SSH RULES - WHAT IS ALREADY IN PLACE
+      set_fact:
+        _vm_fw_has_ssh_accept: "{{ (_vm_fw_ssh_first_pos | int) < (_vm_fw_deny_cover_ssh | int) }}"
+    ####
+    ## NO DENY IS POSTED HERE, AND THAT IS DELIBERATE.
+    ##
+    ## Measured : PVE ends every guest chain with `-j PVEFW-Drop` then `-j DROP`, whatever the
+    ## chain holds. A chain carrying only an unrelated DROP and an ACCEPT on 22 still compiles
+    ## with both. A blanket deny of our own is therefore redundant.
+    ##
+    ## It was also the only way this action could cut a guest off. Creation inserts AT THE TOP,
+    ## so on a chain that already had an accept lower down and no active deny, the blanket deny
+    ## landed ABOVE that accept and the chain granted nothing.
+    ##
+    ## One rule is posted now, the accept. Nothing this action writes can sit above it.
+    ##
+    ## Out of scope : a guest whose `policy_in` is ACCEPT has no terminal deny. This action
+    ## neither reads nor sets that policy.
+    ####
+
+    ####
+    ####
+    ## The accept FIRST, at the top of the chain.
+    ####
+
+    - name: FIREWALL - VM - ENABLE DEFAULT SSH RULES - ACCEPT 22/TCP INBOUND
+      uri:
+        url: "https://{{ proxmox_api_host }}/api2/json/nodes/{{ proxmox_node }}/qemu/{{ vm_id }}/firewall/rules"
+        method: POST
+        headers:
+          Authorization: "PVEAPIToken={{ proxmox_api_user }}!{{ proxmox_api_token_id }}={{ proxmox_api_token_secret }}"
+        body_format: json
+        body:
+          type: "in"
+          action: "ACCEPT"
+          proto: "tcp"
+          dport: "22"
+          enable: 1
+          pos: "{{ vm_fw_ssh_accept_pos | default(0) }}"
+          source: "{{ vm_fw_mgmt_source | default(omit) }}"
+          comment: "{{ vm_fw_ssh_accept_comment | default('range42 default ssh access') }}"
+        validate_certs: "{{ proxmox_api_validate_certs | default(false) }}"
+      register: proxmox_call
+      when: not _vm_fw_has_ssh_accept
+    ####
+    ## READ BACK, THEN ASSERT. The two posts above rely on a behaviour of the api that was
+    ## measured and not promised. If it ever changes, or if a rule was already sitting in the
+    ## chain in a way the presence test did not anticipate, the guest ends up with an accept
+    ## that grants nothing - and the action would report success. So the chain is read again
+    ## and the outcome checked against the same predicate the arming guard uses.
+    ##
+    ## This assert comes AFTER the writes, unlike the one in the arming actions. The writes
+    ## here cannot cut anything off : the guest firewall is armed by a different action, which
+    ## has its own guard. What has to be caught here is a chain that reads as ready and is not.
+    ####
+
+    - name: FIREWALL - VM - ENABLE DEFAULT SSH RULES - READ THE CHAIN BACK
+      uri:
+        url: "https://{{ proxmox_api_host }}/api2/json/nodes/{{ proxmox_node }}/qemu/{{ vm_id }}/firewall/rules"
+        method: GET
+        headers:
+          Authorization: "PVEAPIToken={{ proxmox_api_user }}!{{ proxmox_api_token_id }}={{ proxmox_api_token_secret }}"
+        validate_certs: "{{ proxmox_api_validate_certs | default(false) }}"
+      register: proxmox_call_after
+
+    - name: FIREWALL - VM - ENABLE DEFAULT SSH RULES - WHERE THE RULES ACTUALLY LANDED
+      set_fact:
+        _vm_fw_deny_pos_after: >-
+          {{ (((proxmox_call_after.json.data | default([], true))
+                | selectattr('type', 'defined') | selectattr('type', 'equalto', 'in')
+                | selectattr('action', 'defined') | selectattr('action', 'in', ['DROP', 'REJECT'])
+                | selectattr('enable', 'defined')
+                | rejectattr('enable', 'equalto', 0) | rejectattr('enable', 'equalto', '0')
+                | selectattr('pos', 'defined') | map(attribute='pos') | map('int') | list)
+              + [99999]) | sort | first }}
+        _vm_fw_deny_all_after: >-
+                {{ ((proxmox_call_after.json.data | default([], true))
+                | selectattr('type', 'defined') | selectattr('type', 'equalto', 'in')
+                | selectattr('action', 'defined') | selectattr('action', 'in', ['DROP', 'REJECT'])
+                | selectattr('enable', 'defined')
+                | rejectattr('enable', 'equalto', 0) | rejectattr('enable', 'equalto', '0')
+                | selectattr('pos', 'defined') | map(attribute='pos') | map('int') | list) }}
+        _vm_fw_deny_other_ssh_after: >-
+                {{ ((proxmox_call_after.json.data | default([], true))
+                | selectattr('type', 'defined') | selectattr('type', 'equalto', 'in')
+                | selectattr('action', 'defined') | selectattr('action', 'in', ['DROP', 'REJECT'])
+                | selectattr('enable', 'defined')
+                | rejectattr('enable', 'equalto', 0) | rejectattr('enable', 'equalto', '0')
+                | selectattr('dport', 'defined') | rejectattr('dport', 'none')
+                | selectattr('dport', 'match', '^[0-9]+$')
+                | rejectattr('dport', 'equalto', vm_fw_ssh_port | default('22') | string)
+                | selectattr('pos', 'defined') | map(attribute='pos') | map('int') | list) }}
+        _vm_fw_ssh_pos_after: >-
+          {{ (((proxmox_call_after.json.data | default([], true))
+                | selectattr('type', 'defined') | selectattr('type', 'equalto', 'in')
+                | selectattr('action', 'defined') | selectattr('action', 'equalto', 'ACCEPT')
+                | selectattr('dport', 'defined') | selectattr('dport', 'equalto', '22')
+                | selectattr('enable', 'defined')
+                | rejectattr('enable', 'equalto', 0) | rejectattr('enable', 'equalto', '0')
+                | selectattr('pos', 'defined') | map(attribute='pos') | map('int') | list)
+              + [99999]) | sort | first }}
+
+    - name: FIREWALL - VM - ENABLE DEFAULT SSH RULES - WHICH DENIES COVER SSH NOW
+      set_fact:
+        _vm_fw_deny_cover_ssh_after: "{{ ((_vm_fw_deny_all_after | difference(_vm_fw_deny_other_ssh_after)) + [99999]) | sort | first }}"
+
+    - name: FIREWALL - VM - ENABLE DEFAULT SSH RULES - REFUSE TO REPORT A CHAIN THAT GRANTS NOTHING
+      ansible.builtin.assert:
+        that:
+          - (_vm_fw_ssh_pos_after | int) < 99999
+          - (_vm_fw_ssh_pos_after | int) < (_vm_fw_deny_cover_ssh_after | int)
+        fail_msg: >-
+          The rules were written but the guest is NOT reachable on ssh, so this action will not
+          report success. What the chain holds now : SSH {{ vm_fw_ssh_port | default('22') }}
+          {{ 'is not accepted by any active rule' if (_vm_fw_ssh_pos_after | int) >= 99999 else 'is accepted at position ' ~ _vm_fw_ssh_pos_after }} ;
+          {{ 'no rule blocks inbound traffic' if (_vm_fw_deny_pos_after | int) >= 99999 else 'the first rule that blocks inbound traffic is at position ' ~ _vm_fw_deny_pos_after }}.
+          An accept placed below a blocking rule never runs. Read the chain, remove what is in
+          the way, and run this action again. Arming this guest as it stands would make it
+          unreachable, and the arming action will refuse it.
+        success_msg: >-
+          ssh {{ vm_fw_ssh_port | default('22') }} accepted at position {{ _vm_fw_ssh_pos_after }},
+          first blocking rule at
+          {{ 'none' if (_vm_fw_deny_pos_after | int) >= 99999 else _vm_fw_deny_pos_after }} -
+          the guest stays reachable
+
+
+
+    ####
+    ## `pos_requested` IS WHAT THE CALLER ASKED. `pos_after` IS WHERE THE RULE IS.
+    ##
+    ## They differ, and that is the point of publishing both : the api ignores the requested
+    ## position. Publishing only the first is what this action used to do, and it read as a
+    ## measurement while being an input - it reported the drop at position 0 while the drop
+    ## was at position 1.
+    ####
+    ####
+    ## ONE OBJECT PER RULE, NOT ONE OBJECT PER CALL.
+    ##
+    ## This action used to manage TWO rules, and reported them flattened into two field
+    ## families inside a single object. That breaks the devkit contract, where every reading
+    ## is one json object per line and callers compose on that. Flattened, asking "what did
+    ## you actually post" meant knowing both prefixes by heart.
+    ##
+    ## Published as a LIST : the wrapper flattens it like every other list action.
+    ####
+
+    - name: FIREWALL - VM - ENABLE DEFAULT SSH RULES - BUILD JSON
+      set_fact:
+        firewall_vm_enable_default_ssh_rules: >-
+          {{ [
+            {
+              'action': "firewall_vm_enable_default_ssh_rules",
+              'source': "proxmox",
+              'proxmox_node': proxmox_node,
+              'vm_id': vm_id,
+              'vm_fw_rule': "ssh_accept",
+              'vm_fw_dport': "22",
+              'vm_fw_pos_requested': (vm_fw_ssh_accept_pos | default(0)),
+              'vm_fw_pos_after': _vm_fw_ssh_pos_after,
+              'vm_fw_already_present': _vm_fw_has_ssh_accept,
+              'vm_fw_mgmt_source': (vm_fw_mgmt_source | default(omit)),
+            }
+          ] }}
+
+
+    - name: FIREWALL - VM - ENABLE DEFAULT SSH RULES - PRINT JSON
+      debug:
+        var: firewall_vm_enable_default_ssh_rules
+
+  ####
+  ####
+
+  when: proxmox_vm_action == "firewall_vm_enable_default_ssh_rules"

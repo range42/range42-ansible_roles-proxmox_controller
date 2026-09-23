@@ -1,13 +1,18 @@
 ---
 ##
-## ISSUE - 77
+## ADD A FIREWALL ALIAS ON A GUEST.
+##
+## The report named `vm_fw_comment` - the RULE family's key, never set on this path - so
+## `default(omit)` fired and the comment vanished from the report while the alias was created
+## with it. Same defect as the guest reader carried until 2026-09-03. The dc sibling was right
+## all along : keep the two identical, the asymmetry is what hid it.
 ##
 
 - block:
     ####
     ####
 
-    - name: VM LEVEL - FIREWALL RULE
+    - name: FIREWALL - VM - ADD FW ALIAS
       uri:
         url: "https://{{ proxmox_api_host}}/api2/json/nodes/{{ proxmox_node}}/qemu/{{ vm_id }}/firewall/aliases"
         method: POST
@@ -19,23 +24,17 @@
           cidr: "{{ vm_fw_alias_cidr }}"
           comment: "{{ vm_fw_alias_comment | default(omit) }}" # STR
           #
-        validate_certs: no
+        validate_certs: "{{ proxmox_api_validate_certs | default(false) }}"
       register: proxmox_call
 
-    - name: PRINT proxmox_call
+    - name: FIREWALL - VM - ADD FW ALIAS - proxmox_call
       debug:
         var: proxmox_call
 
     ####
     ####
 
-    # when: proxmox_vm_action == "firewall_vm_apply_iptable_rule"
-
-    - name: VM LEVEL - LIST FW ALIAS -  PRINT proxmox_call
-      debug:
-        var: proxmox_call
-
-    - name: VM LIST - BUILD JSON
+    - name: FIREWALL - VM - ADD FW ALIAS - BUILD JSON
       set_fact:
         firewall_vm_add_iptables_alias:
           action: "firewall_vm_add_iptables_alias"
@@ -43,11 +42,11 @@
           proxmox_node: "{{ proxmox_node }}"
           vm_id: "{{ vm_id }}"
 
+          vm_fw_alias_name: "{{ vm_fw_alias_name | default(omit) }}"
           vm_fw_alias_cidr: "{{ vm_fw_alias_cidr | default(omit) }}"
-          vm_fw_alias_name: "{{ vm_fw_alias_name  |default(omit) }}"
-          vm_fw_comment: "{{ vm_fw_comment | default(omit) }}"
+          vm_fw_alias_comment: "{{ vm_fw_alias_comment | default(omit) }}"
 
-    - name: VM LEVEL - LIST FW ALIAS -  PRINT JSON
+    - name: FIREWALL - VM - ADD FW ALIAS - PRINT JSON
       debug:
         var: firewall_vm_add_iptables_alias
 

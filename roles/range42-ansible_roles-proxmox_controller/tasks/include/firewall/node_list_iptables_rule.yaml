@@ -1,0 +1,77 @@
+---
+##
+## LIST THE FIREWALL RULES OF ONE NODE.
+##
+## GET /nodes/{node}/firewall/rules
+##
+## The node-level counterpart of vm_list_iptables_rule. The node was the only level able to
+## WRITE a rule without being able to read one back : node_apply_iptables_rule existed while
+## this did not, so the guard that reads the node chain had to do it with an inline request
+## rather than by calling an action.
+##
+## Note that a node is covered by TWO chains : its own, read here, and the datacenter one,
+## which Proxmox applies to every node's host chain. A node that looks unprotected here may
+## be protected there.
+##
+
+- block:
+    ####
+    ####
+
+    - name: FIREWALL - NODE - LIST FW RULES
+      uri:
+        url: "https://{{ proxmox_api_host }}/api2/json/nodes/{{ proxmox_node }}/firewall/rules"
+        method: GET
+        headers:
+          Authorization: "PVEAPIToken={{ proxmox_api_user }}!{{ proxmox_api_token_id }}={{ proxmox_api_token_secret }}"
+        validate_certs: "{{ proxmox_api_validate_certs | default(false) }}"
+      register: proxmox_call
+
+    - name: FIREWALL - NODE - LIST FW RULES - PRINT proxmox_call
+      debug:
+        var: proxmox_call
+
+    ####
+    ## `node_fw_enable` is emitted like every other field, and it matters more than it looks :
+    ## a rule stored without it is DISABLED by Proxmox, prefixed with a pipe in the file and
+    ## absent from the compiled chain. A reader that ignores it counts dead rules as
+    ## protection.
+    ####
+
+    - name: FIREWALL - NODE - LIST FW RULES - BUILD JSON
+      set_fact:
+        firewall_node_list_iptables_rule: >-
+          {{ (firewall_node_list_iptables_rule | default([])) +
+            [ {
+              'action': "firewall_node_list_iptables_rule",
+              'source': "proxmox",
+              'proxmox_node':   proxmox_node ,
+
+              'node_fw_action':    ( item.action | default(omit)),
+              'node_fw_type':      ( item.type | default(omit)),
+              'node_fw_iface':     ( item.iface | default(omit)),
+              'node_fw_source':    ( item.source | default(omit)),
+              'node_fw_dest':      ( item.dest | default(omit)),
+              'node_fw_proto':     ( item.proto | default(omit)),
+              'node_fw_dport':     ( item.dport | default(omit)),
+              'node_fw_sport':     ( item.sport | default(omit)),
+              'node_fw_enable':    ( item.enable | default(omit)),
+              'node_fw_comment':   ( item.comment | default(omit)),
+              'node_fw_pos':       ( item.pos | default(omit)),
+              'node_fw_log':       ( item.log | default(omit)),
+            } ] }}
+      loop: "{{ proxmox_call.json.data }}"
+      loop_control:
+        loop_var: item
+
+    - name: FIREWALL - NODE - LIST FW RULES - PRINT JSON
+      debug:
+        var: firewall_node_list_iptables_rule
+      when:
+        - firewall_node_list_iptables_rule is defined
+        - firewall_node_list_iptables_rule | length > 0
+
+  ####
+  ####
+
+  when: proxmox_vm_action == "firewall_node_list_iptables_rule"

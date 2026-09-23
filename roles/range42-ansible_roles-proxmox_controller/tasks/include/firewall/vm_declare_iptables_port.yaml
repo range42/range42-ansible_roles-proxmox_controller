@@ -1,0 +1,215 @@
+---
+##
+## DECLARE ONE SERVICE PORT ON A GUEST : an ACCEPT, posted only if none already grants it.
+##
+## The idempotence predicate is the anti-lockout's, parameterised : an accept counts only if
+## it is ACTIVE and ABOVE the first active deny that can reach the port. Creation always
+## inserts at the top and ignores pos, so posting without this test duplicates on every run.
+##
+## An accept restricted to a source does NOT grant the port to everyone : when no source is
+## requested, only unrestricted accepts count ; when one is, unrestricted or same-source do.
+## Same for proto. The deny side stays deliberately conservative, like the anti-lockout.
+##
+## `vm_fw_dport` is asserted, not defaulted : a silently absent port is how vm_name broke
+## four bundles after the write.
+##
+
+- block:
+    ####
+    ####
+
+    - name: FIREWALL - VM - DECLARE PORT - THE PORT IS GIVEN, AND IT IS A PORT
+      ansible.builtin.assert:
+        that:
+          - vm_fw_dport is defined
+          - vm_fw_dport | string is match('^[0-9]+$')
+        fail_msg: >-
+          vm_fw_dport is {{ 'missing' if vm_fw_dport is not defined else 'not numeric : ' ~ (vm_fw_dport | string) }}.
+          Nothing was posted.
+
+    - name: FIREWALL - VM - DECLARE PORT - READ THE CURRENT CHAIN
+      uri:
+        url: "https://{{ proxmox_api_host }}/api2/json/nodes/{{ proxmox_node }}/qemu/{{ vm_id }}/firewall/rules"
+        method: GET
+        headers:
+          Authorization: "PVEAPIToken={{ proxmox_api_user }}!{{ proxmox_api_token_id }}={{ proxmox_api_token_secret }}"
+        validate_certs: "{{ proxmox_api_validate_certs | default(false) }}"
+      register: proxmox_call_rules
+
+    - name: FIREWALL - VM - DECLARE PORT - WHERE THE CHAIN STARTS DENYING, AND WHAT GRANTS
+      set_fact:
+        _vm_fw_dp_deny_all: >-
+                {{ ((proxmox_call_rules.json.data | default([], true))
+                | selectattr('type', 'defined') | selectattr('type', 'equalto', 'in')
+                | selectattr('action', 'defined') | selectattr('action', 'in', ['DROP', 'REJECT'])
+                | selectattr('enable', 'defined')
+                | rejectattr('enable', 'equalto', 0) | rejectattr('enable', 'equalto', '0')
+                | selectattr('pos', 'defined') | map(attribute='pos') | map('int') | list) }}
+        _vm_fw_dp_deny_other: >-
+                {{ ((proxmox_call_rules.json.data | default([], true))
+                | selectattr('type', 'defined') | selectattr('type', 'equalto', 'in')
+                | selectattr('action', 'defined') | selectattr('action', 'in', ['DROP', 'REJECT'])
+                | selectattr('enable', 'defined')
+                | rejectattr('enable', 'equalto', 0) | rejectattr('enable', 'equalto', '0')
+                | selectattr('dport', 'defined') | rejectattr('dport', 'none')
+                | selectattr('dport', 'match', '^[0-9]+$')
+                | rejectattr('dport', 'equalto', vm_fw_dport | string)
+                | selectattr('pos', 'defined') | map(attribute='pos') | map('int') | list) }}
+        _vm_fw_dp_accepts_raw: >-
+                {{ ((proxmox_call_rules.json.data | default([], true))
+                | selectattr('type', 'defined') | selectattr('type', 'equalto', 'in')
+                | selectattr('action', 'defined') | selectattr('action', 'equalto', 'ACCEPT')
+                | selectattr('enable', 'defined')
+                | rejectattr('enable', 'equalto', 0) | rejectattr('enable', 'equalto', '0')
+                | selectattr('dport', 'defined')
+                | selectattr('dport', 'equalto', vm_fw_dport | string)
+                | selectattr('pos', 'defined') | list) }}
+
+    - name: FIREWALL - VM - DECLARE PORT - WHICH ACCEPTS REALLY GRANT THIS REQUEST
+      set_fact:
+        _vm_fw_dp_deny_cover: "{{ ((_vm_fw_dp_deny_all | difference(_vm_fw_dp_deny_other)) + [99999]) | sort | first }}"
+        _vm_fw_dp_accept_pos: >-
+          {{ (( (_vm_fw_dp_accepts_proto | selectattr('source', 'undefined') | map(attribute='pos') | map('int') | list)
+              + ((_vm_fw_dp_accepts_proto | rejectattr('source', 'undefined')
+                  | selectattr('source', 'equalto', vm_fw_source) | map(attribute='pos') | map('int') | list)
+                 if vm_fw_source is defined else [])
+              ) + [99999]) | sort | first }}
+      vars:
+        _vm_fw_dp_accepts_proto: >-
+          {{ (_vm_fw_dp_accepts_raw | selectattr('proto', 'undefined') | list)
+           + (_vm_fw_dp_accepts_raw | selectattr('proto', 'defined')
+              | selectattr('proto', 'equalto', vm_fw_proto | default('tcp')) | list) }}
+
+    - name: FIREWALL - VM - DECLARE PORT - WHAT IS ALREADY IN PLACE
+      set_fact:
+        _vm_fw_dp_present: "{{ (_vm_fw_dp_accept_pos | int) < (_vm_fw_dp_deny_cover | int) }}"
+
+    ####
+    ## The accept lands AT THE TOP, above every deny - the only place creation can put it.
+    ####
+
+    - name: FIREWALL - VM - DECLARE PORT - ACCEPT {{ vm_fw_dport }}/{{ vm_fw_proto | default('tcp') }} INBOUND
+      uri:
+        url: "https://{{ proxmox_api_host }}/api2/json/nodes/{{ proxmox_node }}/qemu/{{ vm_id }}/firewall/rules"
+        method: POST
+        headers:
+          Authorization: "PVEAPIToken={{ proxmox_api_user }}!{{ proxmox_api_token_id }}={{ proxmox_api_token_secret }}"
+        body_format: json
+        body:
+          type: "in"
+          action: "ACCEPT"
+          proto: "{{ vm_fw_proto | default('tcp') }}"
+          dport: "{{ vm_fw_dport | string }}"
+          enable: 1
+          source: "{{ vm_fw_source | default(omit) }}"
+          comment: "{{ vm_fw_comment | default('range42 declared service port') }}"
+        validate_certs: "{{ proxmox_api_validate_certs | default(false) }}"
+      register: proxmox_call
+      when: not _vm_fw_dp_present
+
+    ####
+    ## READ BACK, THEN ASSERT, with the SAME predicate. What must be caught is a chain that
+    ## reads as ready and is not - an accept below a covering deny never runs.
+    ####
+
+    - name: FIREWALL - VM - DECLARE PORT - READ THE CHAIN BACK
+      uri:
+        url: "https://{{ proxmox_api_host }}/api2/json/nodes/{{ proxmox_node }}/qemu/{{ vm_id }}/firewall/rules"
+        method: GET
+        headers:
+          Authorization: "PVEAPIToken={{ proxmox_api_user }}!{{ proxmox_api_token_id }}={{ proxmox_api_token_secret }}"
+        validate_certs: "{{ proxmox_api_validate_certs | default(false) }}"
+      register: proxmox_call_after
+
+    - name: FIREWALL - VM - DECLARE PORT - WHERE THE RULE ACTUALLY LANDED
+      set_fact:
+        _vm_fw_dp_deny_all_after: >-
+                {{ ((proxmox_call_after.json.data | default([], true))
+                | selectattr('type', 'defined') | selectattr('type', 'equalto', 'in')
+                | selectattr('action', 'defined') | selectattr('action', 'in', ['DROP', 'REJECT'])
+                | selectattr('enable', 'defined')
+                | rejectattr('enable', 'equalto', 0) | rejectattr('enable', 'equalto', '0')
+                | selectattr('pos', 'defined') | map(attribute='pos') | map('int') | list) }}
+        _vm_fw_dp_deny_other_after: >-
+                {{ ((proxmox_call_after.json.data | default([], true))
+                | selectattr('type', 'defined') | selectattr('type', 'equalto', 'in')
+                | selectattr('action', 'defined') | selectattr('action', 'in', ['DROP', 'REJECT'])
+                | selectattr('enable', 'defined')
+                | rejectattr('enable', 'equalto', 0) | rejectattr('enable', 'equalto', '0')
+                | selectattr('dport', 'defined') | rejectattr('dport', 'none')
+                | selectattr('dport', 'match', '^[0-9]+$')
+                | rejectattr('dport', 'equalto', vm_fw_dport | string)
+                | selectattr('pos', 'defined') | map(attribute='pos') | map('int') | list) }}
+        _vm_fw_dp_accepts_raw_after: >-
+                {{ ((proxmox_call_after.json.data | default([], true))
+                | selectattr('type', 'defined') | selectattr('type', 'equalto', 'in')
+                | selectattr('action', 'defined') | selectattr('action', 'equalto', 'ACCEPT')
+                | selectattr('enable', 'defined')
+                | rejectattr('enable', 'equalto', 0) | rejectattr('enable', 'equalto', '0')
+                | selectattr('dport', 'defined')
+                | selectattr('dport', 'equalto', vm_fw_dport | string)
+                | selectattr('pos', 'defined') | list) }}
+
+    - name: FIREWALL - VM - DECLARE PORT - THE PREDICATE AGAIN, ON THE CHAIN AS IT IS
+      set_fact:
+        _vm_fw_dp_deny_cover_after: "{{ ((_vm_fw_dp_deny_all_after | difference(_vm_fw_dp_deny_other_after)) + [99999]) | sort | first }}"
+        _vm_fw_dp_pos_after: >-
+          {{ (( (_vm_fw_dp_accepts_proto | selectattr('source', 'undefined') | map(attribute='pos') | map('int') | list)
+              + ((_vm_fw_dp_accepts_proto | rejectattr('source', 'undefined')
+                  | selectattr('source', 'equalto', vm_fw_source) | map(attribute='pos') | map('int') | list)
+                 if vm_fw_source is defined else [])
+              ) + [99999]) | sort | first }}
+      vars:
+        _vm_fw_dp_accepts_proto: >-
+          {{ (_vm_fw_dp_accepts_raw_after | selectattr('proto', 'undefined') | list)
+           + (_vm_fw_dp_accepts_raw_after | selectattr('proto', 'defined')
+              | selectattr('proto', 'equalto', vm_fw_proto | default('tcp')) | list) }}
+
+    - name: FIREWALL - VM - DECLARE PORT - REFUSE TO REPORT A CHAIN THAT GRANTS NOTHING
+      ansible.builtin.assert:
+        that:
+          - (_vm_fw_dp_pos_after | int) < 99999
+          - (_vm_fw_dp_pos_after | int) < (_vm_fw_dp_deny_cover_after | int)
+        fail_msg: >-
+          Port {{ vm_fw_dport }} is NOT granted on vm {{ vm_id }}, so this action will not
+          report success. The chain now :
+          {{ 'no active accept matches this request' if (_vm_fw_dp_pos_after | int) >= 99999 else 'the accept sits at position ' ~ _vm_fw_dp_pos_after }} ;
+          {{ 'no deny covers the port' if (_vm_fw_dp_deny_cover_after | int) >= 99999 else 'the first covering deny is at position ' ~ _vm_fw_dp_deny_cover_after }}.
+          An accept below a covering deny never runs.
+        success_msg: >-
+          port {{ vm_fw_dport }}/{{ vm_fw_proto | default('tcp') }} granted at position
+          {{ _vm_fw_dp_pos_after }}{{ ', source ' ~ vm_fw_source if vm_fw_source is defined else '' }},
+          first covering deny at
+          {{ 'none' if (_vm_fw_dp_deny_cover_after | int) >= 99999 else _vm_fw_dp_deny_cover_after }}
+
+    ####
+    ## ONE OBJECT PER RULE, AS A LIST : the wrapper flattens it like every list action.
+    ## `already_present` is the idempotence witness - a second run must say true.
+    ####
+
+    - name: FIREWALL - VM - DECLARE PORT - BUILD JSON
+      set_fact:
+        firewall_vm_declare_iptables_port: >-
+          {{ [
+            {
+              'action': "firewall_vm_declare_iptables_port",
+              'source': "proxmox",
+              'proxmox_node': proxmox_node,
+              'vm_id': vm_id,
+              'vm_fw_dport': (vm_fw_dport | string),
+              'vm_fw_proto': (vm_fw_proto | default('tcp')),
+              'vm_fw_source': (vm_fw_source | default(omit)),
+              'vm_fw_pos_after': _vm_fw_dp_pos_after,
+              'vm_fw_first_covering_deny': _vm_fw_dp_deny_cover_after,
+              'vm_fw_already_present': _vm_fw_dp_present,
+            }
+          ] }}
+
+    - name: FIREWALL - VM - DECLARE PORT - PRINT JSON
+      debug:
+        var: firewall_vm_declare_iptables_port
+
+  ####
+  ####
+
+  when: proxmox_vm_action == "firewall_vm_declare_iptables_port"

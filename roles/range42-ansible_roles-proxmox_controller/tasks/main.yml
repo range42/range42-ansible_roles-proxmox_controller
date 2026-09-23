@@ -85,7 +85,7 @@
   ansible.builtin.include_tasks: "./include/snapshot/lxc/snapshot_create.yaml"
   when: proxmox_vm_action == "snapshot_lxc_create"
 
-- name: INCLUDE - ./include/snapshot/lxc/delete_create.yaml
+- name: INCLUDE - ./include/snapshot/lxc/snapshot_delete.yaml
   ansible.builtin.include_tasks: "./include/snapshot/lxc/snapshot_delete.yaml"
   when: proxmox_vm_action == "snapshot_lxc_delete"
 
@@ -127,6 +127,41 @@
   ansible.builtin.include_tasks: "./include/firewall/dc_disable.yaml"
   when: proxmox_vm_action == "firewall_dc_disable"
 
+- name: INCLUDE - ./include/firewall/dc_list_iptables_rule.yaml
+  ansible.builtin.include_tasks: "./include/firewall/dc_list_iptables_rule.yaml"
+  when: proxmox_vm_action == "firewall_dc_list_iptables_rule"
+
+- name: INCLUDE - ./include/firewall/dc_list_options.yaml
+  ansible.builtin.include_tasks: "./include/firewall/dc_list_options.yaml"
+  when: proxmox_vm_action == "firewall_dc_list_options"
+
+- name: INCLUDE - ./include/firewall/dc_apply_iptables_rule.yaml
+  ansible.builtin.include_tasks: "./include/firewall/dc_apply_iptables_rule.yaml"
+  when: proxmox_vm_action == "firewall_dc_apply_iptables_rule"
+
+- name: INCLUDE - ./include/firewall/dc_delete_iptables_rule.yaml
+  ansible.builtin.include_tasks: "./include/firewall/dc_delete_iptables_rule.yaml"
+  when: proxmox_vm_action == "firewall_dc_delete_iptables_rule"
+
+#### anti-lockout du DATACENTER : le niveau retenu, car il couvre tout noeud a venir
+#### sans qu'on ait a le rejouer. A lancer AVANT toute activation, jamais apres.
+
+- name: INCLUDE - ./include/firewall/dc_enable_management_access.yaml
+  ansible.builtin.include_tasks: "./include/firewall/dc_enable_management_access.yaml"
+  when: proxmox_vm_action == "firewall_dc_enable_management_access"
+
+- name: INCLUDE - ./include/firewall/alias/dc_list_iptables_alias.yaml
+  ansible.builtin.include_tasks: "./include/firewall/alias/dc_list_iptables_alias.yaml"
+  when: proxmox_vm_action == "firewall_dc_list_iptables_alias"
+
+- name: INCLUDE - ./include/firewall/alias/dc_add_iptables_alias.yaml
+  ansible.builtin.include_tasks: "./include/firewall/alias/dc_add_iptables_alias.yaml"
+  when: proxmox_vm_action == "firewall_dc_add_iptables_alias"
+
+- name: INCLUDE - ./include/firewall/alias/dc_delete_iptables_alias.yaml
+  ansible.builtin.include_tasks: "./include/firewall/alias/dc_delete_iptables_alias.yaml"
+  when: proxmox_vm_action == "firewall_dc_delete_iptables_alias"
+
 - name: INCLUDE - ./include/firewall/node_enable.yaml
   ansible.builtin.include_tasks: "./include/firewall/node_enable.yaml"
   when: proxmox_vm_action == "firewall_node_enable"
@@ -134,6 +169,32 @@
 - name: INCLUDE - ./include/firewall/node_disable.yaml
   ansible.builtin.include_tasks: "./include/firewall/node_disable.yaml"
   when: proxmox_vm_action == "firewall_node_disable"
+
+- name: INCLUDE - ./include/firewall/node_apply_iptables_rule.yaml
+  ansible.builtin.include_tasks: "./include/firewall/node_apply_iptables_rule.yaml"
+  when: proxmox_vm_action == "firewall_node_apply_iptables_rule"
+
+- name: INCLUDE - ./include/firewall/node_list_iptables_rule.yaml
+  ansible.builtin.include_tasks: "./include/firewall/node_list_iptables_rule.yaml"
+  when: proxmox_vm_action == "firewall_node_list_iptables_rule"
+
+- name: INCLUDE - ./include/firewall/node_list_options.yaml
+  ansible.builtin.include_tasks: "./include/firewall/node_list_options.yaml"
+  when: proxmox_vm_action == "firewall_node_list_options"
+
+- name: INCLUDE - ./include/firewall/node_list_log.yaml
+  ansible.builtin.include_tasks: "./include/firewall/node_list_log.yaml"
+  when: proxmox_vm_action == "firewall_node_list_log"
+
+- name: INCLUDE - ./include/firewall/node_delete_iptables_rule.yaml
+  ansible.builtin.include_tasks: "./include/firewall/node_delete_iptables_rule.yaml"
+  when: proxmox_vm_action == "firewall_node_delete_iptables_rule"
+
+#### anti-lockout : a jouer AVANT firewall_node_enable, jamais apres
+
+- name: INCLUDE - ./include/firewall/node_enable_management_access.yaml
+  ansible.builtin.include_tasks: "./include/firewall/node_enable_management_access.yaml"
+  when: proxmox_vm_action == "firewall_node_enable_management_access"
 
 
 - name: INCLUDE - ./include/firewall/vm_enable.yaml
@@ -143,6 +204,14 @@
 - name: INCLUDE - ./include/firewall/vm_disable.yaml
   ansible.builtin.include_tasks: "./include/firewall/vm_disable.yaml"
   when: proxmox_vm_action == "firewall_vm_disable"
+
+- name: INCLUDE - ./include/firewall/vm_iface_enable.yaml
+  ansible.builtin.include_tasks: "./include/firewall/vm_iface_enable.yaml"
+  when: proxmox_vm_action == "firewall_vm_iface_enable"
+
+- name: INCLUDE - ./include/firewall/vm_iface_disable.yaml
+  ansible.builtin.include_tasks: "./include/firewall/vm_iface_disable.yaml"
+  when: proxmox_vm_action == "firewall_vm_iface_disable"
 
 ####
 
@@ -154,15 +223,23 @@
   ansible.builtin.include_tasks: "./include/firewall/vm_list_iptables_rule.yaml"
   when: proxmox_vm_action == "firewall_vm_list_iptables_rule"
 
-- name: INCLUDE - ./include/firewall/firewall_vm_list_iptables_alias.yaml
+- name: INCLUDE - ./include/firewall/vm_list_options.yaml
+  ansible.builtin.include_tasks: "./include/firewall/vm_list_options.yaml"
+  when: proxmox_vm_action == "firewall_vm_list_options"
+
+- name: INCLUDE - ./include/firewall/vm_list_log.yaml
+  ansible.builtin.include_tasks: "./include/firewall/vm_list_log.yaml"
+  when: proxmox_vm_action == "firewall_vm_list_log"
+
+- name: INCLUDE - ./include/firewall/alias/vm_list_iptables_alias.yaml
   ansible.builtin.include_tasks: "./include/firewall/alias/vm_list_iptables_alias.yaml"
   when: proxmox_vm_action == "firewall_vm_list_iptables_alias"
 
-- name: INCLUDE - ./include/firewall/vm_add_iptables_alias.yaml
+- name: INCLUDE - ./include/firewall/alias/vm_add_iptables_alias.yaml
   ansible.builtin.include_tasks: "./include/firewall/alias/vm_add_iptables_alias.yaml"
   when: proxmox_vm_action == "firewall_vm_add_iptables_alias"
 
-- name: INCLUDE - ./include/firewall/vm_delete_iptables_alias.yaml
+- name: INCLUDE - ./include/firewall/alias/vm_delete_iptables_alias.yaml
   ansible.builtin.include_tasks: "./include/firewall/alias/vm_delete_iptables_alias.yaml"
   when: proxmox_vm_action == "firewall_vm_delete_iptables_alias"
 
@@ -172,9 +249,13 @@
 
 #### #### #### #### #### #### #### #### #### #### #### #### #### #### #### ####
 
-- name: INCLUDE - ./include/firewall/vm_default_rules_ssh.yaml
-  ansible.builtin.include_tasks: "./include/firewall/vm_default_rules_ssh.yaml"
+- name: INCLUDE - ./include/firewall/vm_enable_default_ssh_rules.yaml
+  ansible.builtin.include_tasks: "./include/firewall/vm_enable_default_ssh_rules.yaml"
   when: proxmox_vm_action == "firewall_vm_enable_default_ssh_rules"
+
+- name: INCLUDE - ./include/firewall/vm_declare_iptables_port.yaml
+  ansible.builtin.include_tasks: "./include/firewall/vm_declare_iptables_port.yaml"
+  when: proxmox_vm_action == "firewall_vm_declare_iptables_port"
 
 #### #### #### #### #### #### #### #### #### #### #### #### #### #### #### ####
 #### #### #### #### #### #### #### #### #### #### #### #### #### #### #### ####
@@ -292,23 +373,75 @@
   ansible.builtin.include_tasks: "./include/network/delete_network_node.yaml"
   when: proxmox_vm_action == "network_delete_interfaces_node"
 
-- name: INCLUDE - ./include/network/list_network_node_sdn_zones.yaml
-  ansible.builtin.include_tasks: "./include/network/list_network_node_sdn_zones.yaml"
-  when: proxmox_vm_action == "network_list_node_sdn_zones"
+#### SDN - cluster level
+
+- name: INCLUDE - ./include/network/list_network_sdn_zones.yaml
+  ansible.builtin.include_tasks: "./include/network/list_network_sdn_zones.yaml"
+  when: proxmox_vm_action == "network_list_sdn_zones"
+
+- name: INCLUDE - ./include/network/list_network_sdn_vnets.yaml
+  ansible.builtin.include_tasks: "./include/network/list_network_sdn_vnets.yaml"
+  when: proxmox_vm_action == "network_list_sdn_vnets"
+
+- name: INCLUDE - ./include/network/list_network_sdn_subnets.yaml
+  ansible.builtin.include_tasks: "./include/network/list_network_sdn_subnets.yaml"
+  when: proxmox_vm_action == "network_list_sdn_subnets"
+
+- name: INCLUDE - ./include/network/add_network_sdn_zone.yaml
+  ansible.builtin.include_tasks: "./include/network/add_network_sdn_zone.yaml"
+  when: proxmox_vm_action == "network_add_sdn_zone"
+
+- name: INCLUDE - ./include/network/add_network_sdn_vnet.yaml
+  ansible.builtin.include_tasks: "./include/network/add_network_sdn_vnet.yaml"
+  when: proxmox_vm_action == "network_add_sdn_vnet"
+
+- name: INCLUDE - ./include/network/add_network_sdn_subnet.yaml
+  ansible.builtin.include_tasks: "./include/network/add_network_sdn_subnet.yaml"
+  when: proxmox_vm_action == "network_add_sdn_subnet"
+
+- name: INCLUDE - ./include/network/update_network_sdn_subnet.yaml
+  ansible.builtin.include_tasks: "./include/network/update_network_sdn_subnet.yaml"
+  when: proxmox_vm_action == "network_update_sdn_subnet"
+
+#### SDN - cluster level - suppression, dans cet ordre impose : subnet -> vnet -> zone
+
+- name: INCLUDE - ./include/network/delete_network_sdn_subnet.yaml
+  ansible.builtin.include_tasks: "./include/network/delete_network_sdn_subnet.yaml"
+  when: proxmox_vm_action == "network_delete_sdn_subnet"
+
+- name: INCLUDE - ./include/network/delete_network_sdn_vnet.yaml
+  ansible.builtin.include_tasks: "./include/network/delete_network_sdn_vnet.yaml"
+  when: proxmox_vm_action == "network_delete_sdn_vnet"
+
+- name: INCLUDE - ./include/network/delete_network_sdn_zone.yaml
+  ansible.builtin.include_tasks: "./include/network/delete_network_sdn_zone.yaml"
+  when: proxmox_vm_action == "network_delete_sdn_zone"
+
+- name: INCLUDE - ./include/network/apply_network_sdn.yaml
+  ansible.builtin.include_tasks: "./include/network/apply_network_sdn.yaml"
+  when: proxmox_vm_action == "network_apply_sdn"
+
+- name: INCLUDE - ./include/network/delete_network_extra_snat_rules.yaml
+  ansible.builtin.include_tasks: "./include/network/delete_network_extra_snat_rules.yaml"
+  when: proxmox_vm_action == "network_delete_extra_snat_rules"
+
+- name: INCLUDE - ./include/network/list_network_snat_rules.yaml
+  ansible.builtin.include_tasks: "./include/network/list_network_snat_rules.yaml"
+  when: proxmox_vm_action == "network_list_snat_rules"
 
 #### #### #### #### #### #### #### #### #### #### #### #### #### #### #### ####
 #### #### #### #### #### #### #### #### #### #### #### #### #### #### #### ####
 #### #### #### #### #### #### #### #### #### #### #### #### #### #### #### ####
 
-- name: INCLUDE - ./include/cluster/set_tag.yaml"
+- name: INCLUDE - ./include/cluster/set_tag.yaml
   ansible.builtin.include_tasks: "./include/cluster/set_tag.yaml"
   when: proxmox_vm_action == "cluster_set_tag"
 
-- name: INCLUDE - ./include/vm/x_vm_set_tag.yaml"
+- name: INCLUDE - ./include/vm/x_vm_set_tag.yaml
   ansible.builtin.include_tasks: "./include/vm/x_vm_set_tag.yaml"
   when: proxmox_vm_action == "vm_set_tag"
 
-- name: INCLUDE - ./include/lxc/x_lxc_set_tag.yaml"
+- name: INCLUDE - ./include/lxc/x_lxc_set_tag.yaml
   ansible.builtin.include_tasks: "./include/lxc/x_lxc_set_tag.yaml"
   when: proxmox_vm_action == "lxc_set_tag"
 #

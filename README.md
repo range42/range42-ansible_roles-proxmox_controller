@@ -39,8 +39,8 @@ right task file:
     proxmox_node: "px-testing"
     vm_id: 100
     vm_name: "r42.mon-wazuh-01"
-    vm_ci_ip: "192.168.42.100/24"
-    vm_ci_gateway: "192.168.42.1"
+    vm_ci_ip: "192.168.143.100/24"
+    vm_ci_gateway: "192.168.143.1"
     vm_ci_dns_ips: "1.1.1.1"
     # ... see defaults/main.yml for all variables
 ```
@@ -136,7 +136,19 @@ right task file:
 | `network_list_interfaces_node` | List node network interfaces |
 | `network_add_interfaces_node` | Add interface to a node |
 | `network_delete_interfaces_node` | Delete interface from a node |
-| `network_list_node_sdn_zones` | List SDN zones on a node |
+| `network_list_sdn_zones` | List SDN zones at the cluster level |
+| `network_list_sdn_vnets` | List SDN vnets at the cluster level |
+| `network_list_sdn_subnets` | List SDN subnets of every vnet, cluster wide |
+| `network_add_sdn_zone` | Create an SDN zone at the cluster level |
+| `network_add_sdn_vnet` | Create an SDN vnet in a zone |
+| `network_add_sdn_subnet` | Create an SDN subnet in a vnet |
+| `network_update_sdn_subnet` | Update an SDN subnet by its id, the snat toggle |
+| `network_delete_sdn_subnet` | Delete an SDN subnet, by its id, from its vnet |
+| `network_delete_sdn_vnet` | Delete an SDN vnet, once it has no subnet left |
+| `network_delete_sdn_zone` | Delete an SDN zone, once it has no vnet left |
+| `network_apply_sdn` | Apply the pending SDN configuration, waiting for the task |
+| `network_delete_extra_snat_rules` | Delete the extra live SNAT rules of one subnet, down to a wanted count |
+| `network_list_snat_rules` | List the live SNAT rules of the node, grouped by source network, read only |
 
 ### Firewall (`firewall_*`)
 
@@ -146,6 +158,8 @@ right task file:
 | `firewall_dc_disable` | Disable firewall at datacenter level |
 | `firewall_node_enable` | Enable firewall at node level |
 | `firewall_node_disable` | Disable firewall at node level |
+| `firewall_node_apply_iptables_rule` | Apply one firewall rule at node level |
+| `firewall_node_enable_management_access` | Anti-lockout, accept the API port and ssh before enabling |
 | `firewall_vm_enable` | Enable firewall on a VM |
 | `firewall_vm_disable` | Disable firewall on a VM |
 | `firewall_vm_apply_iptables_rule` | Apply iptables rule to a VM |
@@ -155,6 +169,23 @@ right task file:
 | `firewall_vm_list_iptables_alias` | List iptables aliases on a VM |
 | `firewall_vm_delete_iptables_alias` | Delete iptables alias from a VM |
 | `firewall_vm_enable_default_ssh_rules` | Apply default SSH firewall rules |
+| `firewall_vm_declare_iptables_port` | Declare an inbound accept for one port on a VM, idempotently ; `vm_fw_source` restricts it to a comma list of addresses or CIDRs, absent means any source |
+| `firewall_vm_iface_enable` | Set the firewall flag on a VM network card, waiting for the config task before reading it back |
+| `firewall_vm_iface_disable` | Clear the firewall flag on a VM network card |
+| `firewall_vm_list_options` | List the firewall options of a VM (a never-configured guest returns no `enable` key) |
+| `firewall_vm_list_log` | Read the firewall log of a VM |
+| `firewall_dc_enable_management_access` | Anti-lockout at the datacenter level, accept the API port and ssh before enabling |
+| `firewall_dc_apply_iptables_rule` | Apply one firewall rule at datacenter level |
+| `firewall_dc_list_iptables_rule` | List datacenter firewall rules |
+| `firewall_dc_delete_iptables_rule` | Delete one datacenter firewall rule |
+| `firewall_dc_add_iptables_alias` | Add a datacenter alias |
+| `firewall_dc_list_iptables_alias` | List datacenter aliases |
+| `firewall_dc_delete_iptables_alias` | Delete a datacenter alias |
+| `firewall_dc_list_options` | List the datacenter firewall options |
+| `firewall_node_list_iptables_rule` | List node firewall rules |
+| `firewall_node_delete_iptables_rule` | Delete one node firewall rule |
+| `firewall_node_list_options` | List the node firewall options |
+| `firewall_node_list_log` | Read the node firewall log |
 
 ### Cluster (`cluster_*`)
 
@@ -171,9 +202,10 @@ The role authenticates via Proxmox API token. Required variables:
 ```yaml
 proxmox_api_host: "192.168.1.100"
 proxmox_api_port: 8006
-proxmox_api_user: "range42@pve"
-proxmox_api_token_id: "range42_token"
+proxmox_api_user: "range42_api@pam"
+proxmox_api_token_id: "range42_api_token"
 proxmox_api_token_secret: "xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx"  # from vault
+proxmox_api_validate_certs: false  # the one default the role ships ; true once the API certificate is trusted
 ```
 
 These are typically stored in the Ansible vault and injected automatically

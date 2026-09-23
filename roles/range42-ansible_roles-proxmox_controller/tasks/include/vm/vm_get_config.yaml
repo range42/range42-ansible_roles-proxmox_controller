@@ -1,22 +1,17 @@
 ---
-##
-## #PR-9
-##
 
 - block:
     ####
     ####
 
     - name: VM GET CONFIG
-      vars:
-        proxmox_vmid: 100 # TODO - OVERWRITED_ARGUMENTS
 
       uri:
         url: "https://{{ proxmox_api_host }}/api2/json/nodes/{{ proxmox_node }}/qemu/{{ vm_id }}/config"
         method: GET
         headers:
           Authorization: "PVEAPIToken={{ proxmox_api_user }}!{{ proxmox_api_token_id }}={{ proxmox_api_token_secret }}"
-        validate_certs: no
+        validate_certs: "{{ proxmox_api_validate_certs | default(false) }}"
       register: proxmox_call
 
     ####
