@@ -1,0 +1,5 @@
+{
+  "version": 1,
+  "snat_rule_matching": "exact_source_nat_target_v1",
+  "snat_snapshot_preservation": "exact_appended_duplicates_v1"
+}

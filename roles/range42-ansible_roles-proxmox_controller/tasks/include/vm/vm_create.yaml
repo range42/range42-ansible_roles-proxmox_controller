@@ -13,6 +13,14 @@
       register: _vm_exists_check
       failed_when: false
 
+    - name: VM - REQUIRE a fresh ID for an isolated owned build
+      ansible.builtin.assert:
+        that:
+          - _vm_exists_check.status | default(0) == 500
+          - vm_description | default('') is match('^range42-template-build:[0-9a-f]{32}(\nrange42-template-plan:[0-9a-f]{64})?$')
+        fail_msg: "Isolated creation requires a fresh, readable VM ID and an exact template build marker."
+      when: vm_create_require_absent | default(false) | bool
+
     - name: VM - SKIP CREATE (VM ID {{ vm_id }} already exists)
       debug:
         msg: "VM ID {{ vm_id }} already exists — skipping creation"
@@ -28,6 +36,7 @@
         body:
           vmid: "{{    vm_id }}"
           name: "{{    vm_name }}"
+          description: "{{ vm_description | default(omit) }}"
           cpu: "{{     vm_cpu }}"
           cores: "{{   vm_cores }}"
           sockets: "{{ vm_sockets }}"

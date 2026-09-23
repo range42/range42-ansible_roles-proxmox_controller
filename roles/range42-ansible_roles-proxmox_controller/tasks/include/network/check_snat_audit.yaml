@@ -1,0 +1,22 @@
+---
+# /nodes/<node>/tasks silently filters other users' workers without Sys.Audit.
+# Query the authenticated token's effective permissions, not its parent user's.
+- name: NETWORK - SNAT - READ EFFECTIVE NODE TASK AUDIT PERMISSION
+  ansible.builtin.uri:
+    url: "https://{{ proxmox_api_host }}/api2/json/access/permissions?path=/nodes/{{ _sdn_snat_node.node }}"
+    method: GET
+    headers:
+      Authorization: "PVEAPIToken={{ proxmox_api_user }}!{{ proxmox_api_token_id }}={{ proxmox_api_token_secret }}"
+    validate_certs: "{{ proxmox_api_validate_certs | default(false) }}"
+  register: _sdn_snat_audit
+  no_log: true
+
+- name: NETWORK - SNAT - REQUIRE UNFILTERED NODE TASK HISTORY
+  ansible.builtin.assert:
+    that:
+      - _sdn_snat_audit.json.data is mapping
+      - "('/nodes/' ~ _sdn_snat_node.node) in _sdn_snat_audit.json.data"
+      - _sdn_snat_audit.json.data['/nodes/' ~ _sdn_snat_node.node] is mapping
+      # Values describe propagation; a present privilege with value 0 is valid.
+      - "'Sys.Audit' in _sdn_snat_audit.json.data['/nodes/' ~ _sdn_snat_node.node]"
+    fail_msg: "Effective Sys.Audit is required on /nodes/{{ _sdn_snat_node.node }} to verify all network workers; filtered task history is unsafe."

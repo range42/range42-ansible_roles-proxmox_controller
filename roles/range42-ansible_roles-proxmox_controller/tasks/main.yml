@@ -421,6 +421,22 @@
   ansible.builtin.include_tasks: "./include/network/apply_network_sdn.yaml"
   when: proxmox_vm_action == "network_apply_sdn"
 
+- name: INCLUDE - ./include/network/sdn_delete_journal.yaml
+  ansible.builtin.include_tasks: "./include/network/sdn_delete_journal.yaml"
+  when: proxmox_vm_action == "network_sdn_delete_journal"
+
+- name: INCLUDE - ./include/network/plan_sdn_delete.yaml
+  ansible.builtin.include_tasks: "./include/network/plan_sdn_delete.yaml"
+  when: proxmox_vm_action == "network_plan_sdn_delete"
+
+- name: INCLUDE - ./include/network/count_network_snat_source.yaml
+  ansible.builtin.include_tasks: "./include/network/count_network_snat_source.yaml"
+  when: proxmox_vm_action == "network_count_snat_source"
+
+- name: INCLUDE - ./include/network/preserve_network_snat_rules.yaml
+  ansible.builtin.include_tasks: "./include/network/preserve_network_snat_rules.yaml"
+  when: proxmox_vm_action in ['network_snapshot_snat_rules', 'network_restore_snat_snapshot', 'network_reconcile_snat_sources']
+
 - name: INCLUDE - ./include/network/delete_network_extra_snat_rules.yaml
   ansible.builtin.include_tasks: "./include/network/delete_network_extra_snat_rules.yaml"
   when: proxmox_vm_action == "network_delete_extra_snat_rules"

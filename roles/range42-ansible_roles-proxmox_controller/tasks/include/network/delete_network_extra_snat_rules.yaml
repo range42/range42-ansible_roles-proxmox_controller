@@ -7,8 +7,8 @@
 ## WHY : an apply is ifreload, which replays the vnet post-up hooks without playing the
 ## post-down ones, so each apply appends one more SNAT rule per subnet at snat=1.
 ## Setting snat=0 is worse, it drops the post-down hook before it ever ran and orphans
-## the live rule. Matching on the source network rather than the target makes it work on
-## SNAT and MASQUERADE alike, hence also on the rules left by the legacy hack.
+## the live rule. Match the exact concrete source CIDR and an explicit SNAT or
+## MASQUERADE target. ACCEPT, LOG, negated-source and other subnet rules are preserved.
 ##
 ## WHY NOT THE API : these rules are not API objects. They come from a post-up hook in
 ## /etc/network/interfaces.d, so the firewall endpoints, which only ever write the
@@ -18,15 +18,10 @@
 ## shell task there runs on the DEPLOYER. Only proxmox_cli reaches the node over SSH,
 ## hence the delegation on that one task. The assert and the output fact stay local.
 ##
-## DO NOT CHANGE
-##  1. the trailing SPACE in "-s ${S} " : without it 192.168.14 also matches
-##     192.168.140.0/24 and deletes another subnet's rules.
-##  2. the rule is read back and its -A turned into -D, so nothing is hardcoded.
-##  3. the substitution feeding iptables is unquoted on purpose, the rule spec has to
-##     split into separate arguments.
-##  4. every iptables exit status is checked. Piping straight into "grep -c ... || true"
-##     turned a missing binary into a count of zero, and the action reported a subnet
-##     reconciled that it had never looked at.
+## Rule text is parsed with Python shlex and passed as an argv list, preserving
+## quoted/escaped comments without shell evaluation. Every read/write status is
+## checked and deletions are bounded. A failed read never becomes a count of zero.
+## Python3 is already required by the controller's Ansible modules.
 ##
 
 - block:
@@ -66,64 +61,22 @@
     ####
     ####
     ## The loop is bounded : looping until the count drops never ends if a deletion
-    ## silently fails, and this runs on the hypervisor. The only tolerated failure below
-    ## is grep's exit 1, which legitimately means zero matching rules.
+    ## silently fails, and this runs on the hypervisor. The helper refuses a failed
+    ## read/write or a rule count that does not decrease.
     ####
 
     - name: NETWORK - DELETE EXTRA SNAT RULES - NORMALISE THE LIVE RULE COUNT
       ## iptables lives in /usr/sbin, not always on a non interactive shell's PATH.
       environment:
         PATH: "/usr/sbin:/sbin:/usr/bin:/bin"
-      ansible.builtin.shell: |
-        set -u
-        S='{{ sdn_subnet_cidr }}'
-        want='{{ sdn_snat_want | default(1) }}'
-
-        command -v iptables >/dev/null 2>&1 || {
-          echo "delete_extra_snat_rules: iptables not found on $(hostname), PATH=$PATH" >&2
-          exit 1
-        }
-
-        ## counting on captured text, so a read failure cannot look like an empty chain
-        table=$(iptables -t nat -S POSTROUTING) || {
-          echo "delete_extra_snat_rules: cannot read the nat table on $(hostname)" >&2
-          exit 1
-        }
-        before=$(printf '%s\n' "$table" | grep -c -- "-s ${S} " || true)
-
-        guard=0
-        now="$before"
-        while [ "$now" -gt "$want" ]; do
-          guard=$((guard + 1))
-          if [ "$guard" -gt 1000 ]; then
-            echo "delete_extra_snat_rules: gave up after 1000 deletions, the rule count is not decreasing" >&2
-            exit 1
-          fi
-
-          rule=$(printf '%s\n' "$table" | grep -m1 -- "-s ${S} " | sed 's/^-A /-D /')
-          if [ -z "$rule" ]; then
-            echo "delete_extra_snat_rules: counted ${now} rules but could not extract one to delete" >&2
-            exit 1
-          fi
-
-          # shellcheck disable=SC2086
-          iptables -t nat $rule || {
-            echo "delete_extra_snat_rules: deletion refused : ${rule}" >&2
-            exit 1
-          }
-
-          table=$(iptables -t nat -S POSTROUTING) || {
-            echo "delete_extra_snat_rules: cannot re-read the nat table after a deletion" >&2
-            exit 1
-          }
-          now=$(printf '%s\n' "$table" | grep -c -- "-s ${S} " || true)
-        done
-        after="$now"
-
-        printf '{"before":%s,"after":%s,"want":%s,"deleted":%s}\n' \
-          "$before" "$after" "$want" "$((before - after))"
-      args:
-        executable: /bin/bash
+      ansible.builtin.command:
+        argv:
+          - python3
+          - -c
+          - "{{ lookup('file', role_path ~ '/files/snat_rules.py') }}"
+          - reconcile
+          - "{{ sdn_subnet_cidr }}"
+          - "{{ sdn_snat_want | default(1) }}"
       ## by group, not by name, so the codename stays out of the role
       delegate_to: "{{ groups['proxmox_cli'] | first }}"
       register: proxmox_call
@@ -151,6 +104,7 @@
           ## which host was actually touched : this once ran on the deployer and still
           ## returned a clean zero
           snat_host: "{{ groups['proxmox_cli'] | first }}"
+          snat_rule_matching: "exact_source_nat_target_v1"
 
           snat_want: "{{ (proxmox_call.stdout | from_json).want }}"
           snat_before: "{{ (proxmox_call.stdout | from_json).before }}"

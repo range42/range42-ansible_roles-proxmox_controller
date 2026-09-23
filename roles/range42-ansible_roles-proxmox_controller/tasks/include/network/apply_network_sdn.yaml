@@ -11,8 +11,9 @@
 ## >>> THE APPLY IS ASYNCHRONOUS <<<
 ## The PUT does not wait. It returns a UPID, the identifier of the background task doing
 ## the work, and returns immediately. Chaining another action right after it means acting
-## on a half applied cluster. Polling until that task reports "stopped" is therefore not
-## a refinement, it is the contract.
+## on a half applied cluster. The parent only launches the node workers: after it stops
+## successfully, every covered node must have one new successful networking srvreload.
+## The saved per-node baseline prevents an older successful task from proving completion.
 ##
 ## The node that runs the task is read back FROM THE UPID rather than assumed to be
 ## proxmox_node. A UPID is "UPID:<node>:<pid>:<pstart>:<starttime>:<type>:<id>:<user>:",
@@ -32,6 +33,35 @@
 ##
 
 - block:
+    - name: NETWORK - CLUSTER - CLEAR PREVIOUS APPLY COMPLETION
+      ansible.builtin.set_fact:
+        network_snat_apply_verified: false
+        network_snat_apply_attempted: true
+        network_snat_node_reloads: {}
+
+    - name: NETWORK - CLUSTER - REQUIRE COMPLETE SAVED PRESERVATION COVERAGE
+      ansible.builtin.assert:
+        that:
+          - ansible_play_hosts_all | length == 1
+          - (network_snat_snapshot_verified | default(none)) is sameas true
+          - network_snat_plan is defined and network_snat_plan is mapping
+          - network_snat_plan.nodes | length > 0
+          - network_snat_snapshots is defined and network_snat_snapshots is mapping
+          - network_snat_reload_baseline is defined and network_snat_reload_baseline is mapping
+          - (network_snat_snapshots | list | sort) == (network_snat_plan.nodes | map(attribute='node') | sort)
+          - (network_snat_reload_baseline | list | sort) == (network_snat_plan.nodes | map(attribute='node') | sort)
+        fail_msg: Global SDN apply requires verified snapshots and idle reload baselines on every cluster node before PUT.
+
+    - name: NETWORK - CLUSTER - REVALIDATE COVERAGE BEFORE GLOBAL APPLY
+      ansible.builtin.include_tasks: plan_snat_coverage.yaml
+
+    - name: NETWORK - CLUSTER - REFUSE INTERVENING RELOADS BEFORE GLOBAL APPLY
+      ansible.builtin.include_tasks: snat_reload_baseline.yaml
+      loop: "{{ network_snat_plan.nodes }}"
+      loop_control:
+        loop_var: _sdn_snat_node
+        label: "{{ _sdn_snat_node.node }}"
+
     ####
     ####
 
@@ -113,6 +143,17 @@
           Read the task log on {{ _sdn_apply_node }} before retrying.
       when: (proxmox_call.json.data.exitstatus | default('')) != "OK"
 
+    - name: NETWORK - CLUSTER - WAIT FOR EVERY COVERED NODE NETWORK RELOAD
+      ansible.builtin.include_tasks: wait_snat_reload.yaml
+      loop: "{{ network_snat_plan.nodes }}"
+      loop_control:
+        loop_var: _sdn_snat_node
+        label: "{{ _sdn_snat_node.node }}"
+
+    - name: NETWORK - CLUSTER - AUTHORIZE CLEANUP AFTER ALL NODE RELOADS
+      ansible.builtin.set_fact:
+        network_snat_apply_verified: true
+
     ####
     ####
 
@@ -127,6 +168,7 @@
           apply_node: "{{ _sdn_apply_node }}"
           apply_status: "{{ proxmox_call.json.data.status | default('') }}"
           apply_exitstatus: "{{ proxmox_call.json.data.exitstatus | default('') }}"
+          node_reloads: "{{ network_snat_node_reloads }}"
 
     ####
     ####

@@ -20,6 +20,39 @@
     ####
     ####
 
+    - name: NETWORK - CLUSTER - READ MEMBERSHIP BEFORE ZONE CREATION
+      ansible.builtin.uri:
+        url: "https://{{ proxmox_api_host }}/api2/json/cluster/status"
+        method: GET
+        headers:
+          Authorization: "PVEAPIToken={{ proxmox_api_user }}!{{ proxmox_api_token_id }}={{ proxmox_api_token_secret }}"
+        validate_certs: "{{ proxmox_api_validate_certs | default(false) }}"
+      register: _sdn_zone_cluster
+      no_log: true
+
+    - name: NETWORK - CLUSTER - VALIDATE AND ENCODE THE ZONE NODE LIST
+      ansible.builtin.command:
+        argv:
+          - python3
+          - -c
+          - "{{ lookup('file', role_path ~ '/files/snat_cluster.py') }}"
+          - zone-nodes
+        stdin: >-
+          {{ {'status': _sdn_zone_cluster.json.data,
+              'requested': sdn_zone_nodes | default(none), 'zone': sdn_zone,
+              'plan': network_snat_plan | default(none),
+              'intent': network_snat_plan_input | default(none),
+              'snapshot_verified': network_snat_snapshot_verified | default(none)} | to_json }}
+      register: _sdn_zone_membership
+      changed_when: false
+      failed_when: false
+      no_log: true
+
+    - name: NETWORK - CLUSTER - REQUIRE VALIDATED ZONE MEMBERSHIP BEFORE POST
+      ansible.builtin.assert:
+        that: _sdn_zone_membership.rc == 0
+        fail_msg: "No zone write is authorized: {{ _sdn_zone_membership.stderr | default('Zone membership could not be validated') }}"
+
     - name: NETWORK - CLUSTER - ADD SDN ZONE
       uri:
         url: "https://{{ proxmox_api_host }}/api2/json/cluster/sdn/zones"
@@ -31,7 +64,7 @@
           zone: "{{ sdn_zone }}"
           type: "{{ sdn_zone_type | default('simple') }}"
 
-          nodes: "{{ sdn_zone_nodes | default(omit) }}"
+          nodes: "{{ (_sdn_zone_membership.stdout | from_json).nodes | default(omit, true) }}"
           mtu: "{{ sdn_zone_mtu | default(omit) }}"
           dhcp: "{{ sdn_zone_dhcp | default(omit) }}"
 
@@ -57,7 +90,7 @@
 
           zone: "{{ sdn_zone }}"
           zone_type: "{{ sdn_zone_type | default('simple') }}"
-          zone_nodes: "{{ sdn_zone_nodes | default(omit) }}"
+          zone_nodes: "{{ (_sdn_zone_membership.stdout | from_json).nodes | default(omit, true) }}"
           zone_mtu: "{{ sdn_zone_mtu | default(omit) }}"
           zone_dhcp: "{{ sdn_zone_dhcp | default(omit) }}"
 

@@ -1,59 +1,142 @@
 ---
+# Adapted from upstream PR #101: resolve the selected storage, preserve TLS
+# verification and wait for completion before a template consumes the image.
+- name: Download or reuse the selected storage image
+  when: proxmox_vm_action == "storage_download_iso"
+  block:
+    - name: Validate the storage image name
+      ansible.builtin.assert:
+        that:
+          - iso_file_name is match('^[A-Za-z0-9][A-Za-z0-9._-]*$')
+          - iso_file_content_type in ['iso', 'vztmpl']
+        fail_msg: "Use a plain image filename and an iso or vztmpl storage content type."
 
-- block:
-    ####
-    ####
+    - name: Fetch the image SHA256SUMS
+      ansible.builtin.uri:
+        url: "{{ iso_url | dirname }}/SHA256SUMS"
+        return_content: true
+      register: _iso_sha256sums
+      failed_when: false
+      changed_when: false
 
-    - name: Download -  ISO
-      uri:
-        url: "https://{{ proxmox_api_host }}/api2/json/nodes/{{ proxmox_node }}/storage/{{ proxmox_storage }}/download-url"
-        method: POST
-        headers:
-          Authorization: "PVEAPIToken={{ proxmox_api_user }}!{{ proxmox_api_token_id }}={{ proxmox_api_token_secret }}"
-        validate_certs: "{{ proxmox_api_validate_certs | default(false) }}"
-        body_format: form-urlencoded
-        body:
-          content: "{{   iso_file_content_type }}"
-          filename: "{{  iso_file_name }}"
-          url: "{{       iso_url }}"
-          storage: "{{   proxmox_storage }}"
-          node: "{{      proxmox_node }}"
-          # full: 1
-      register: proxmox_call
+    - name: Fetch SHA512SUMS when SHA256SUMS is unavailable
+      ansible.builtin.uri:
+        url: "{{ iso_url | dirname }}/SHA512SUMS"
+        return_content: true
+      register: _iso_sha512sums
+      failed_when: false
+      changed_when: false
+      when: _iso_sha256sums.status | default(0) != 200
 
-    ####
-    ####
-    - name: STORAGE - DOWNLOAD ISO - PRINT proxmox_call
-      debug:
-        var: proxmox_call
+    - name: Select the published image checksum
+      ansible.builtin.set_fact:
+        _iso_remote_checksum: >-
+          {{ ((_iso_sha256sums.content if _iso_sha256sums.status | default(0) == 200
+               else _iso_sha512sums.content | default('')).splitlines()
+              | select('match', '^[0-9a-fA-F]+[ ]+[*]?' ~ (iso_url | basename | regex_escape) ~ '$')
+              | list | first | default('')).split() | first | default('') | lower }}
+        _iso_checksum_algorithm: "{{ 'sha256' if _iso_sha256sums.status | default(0) == 200 else 'sha512' }}"
 
-    - name: STORAGE - DOWNLOAD ISO - PRINT proxmox_call
-      debug:
-        var: proxmox_call
+    - name: Validate a published checksum
+      ansible.builtin.assert:
+        that:
+          - _iso_remote_checksum | length == (64 if _iso_checksum_algorithm == 'sha256' else 128)
+        fail_msg: "The image checksum has an invalid length."
+      when: _iso_remote_checksum | length > 0
 
-    - name: STORAGE - DOWNLOAD ISO- BUILD JSON
-      set_fact:
+    - name: Resolve the image on the selected Proxmox storage
+      ansible.builtin.command:
+        argv:
+          - pvesm
+          - path
+          - "{{ proxmox_storage }}:{{ iso_file_content_type }}/{{ iso_file_name }}"
+      register: _iso_storage_path
+      changed_when: false
+      delegate_to: "{{ inventory_hostname }}-cli"
+
+    - name: Inspect the cached image
+      ansible.builtin.stat:
+        path: "{{ _iso_storage_path.stdout | trim }}"
+        get_checksum: "{{ _iso_remote_checksum | length > 0 }}"
+        checksum_algorithm: "{{ _iso_checksum_algorithm }}"
+      register: _iso_stat
+      delegate_to: "{{ inventory_hostname }}-cli"
+
+    - name: Refuse to replace a non-file cache entry
+      ansible.builtin.assert:
+        that:
+          - not _iso_stat.stat.exists or _iso_stat.stat.isreg | default(false)
+        fail_msg: "The storage image path exists and is not a regular file."
+
+    - name: Decide whether the storage image needs downloading
+      ansible.builtin.set_fact:
+        _iso_download_needed: >-
+          {{ not _iso_stat.stat.exists or
+             (_iso_remote_checksum != '' and _iso_stat.stat.checksum | default('') != _iso_remote_checksum) }}
+
+    - name: Report an unverified existing image
+      ansible.builtin.debug:
+        msg: "Reusing {{ iso_file_name }} without verification: no published checksum was found."
+      when: _iso_stat.stat.exists and _iso_remote_checksum == ''
+
+    - name: Remove a stale cached image
+      ansible.builtin.file:
+        path: "{{ _iso_storage_path.stdout | trim }}"
+        state: absent
+      delegate_to: "{{ inventory_hostname }}-cli"
+      when: _iso_stat.stat.exists and _iso_download_needed
+
+    - name: Download and wait for the verified image
+      when: _iso_download_needed
+      block:
+        - name: Start the Proxmox storage download
+          ansible.builtin.uri:
+            url: "https://{{ proxmox_api_host }}/api2/json/nodes/{{ proxmox_node }}/storage/{{ proxmox_storage }}/download-url"
+            method: POST
+            headers:
+              Authorization: "PVEAPIToken={{ proxmox_api_user }}!{{ proxmox_api_token_id }}={{ proxmox_api_token_secret }}"
+            validate_certs: "{{ proxmox_api_validate_certs | default(true) }}"
+            ca_path: "{{ lookup('env', 'RANGE42_PROXMOX_CA_FILE') | default(omit, true) }}"
+            body_format: form-urlencoded
+            body:
+              content: "{{ iso_file_content_type }}"
+              filename: "{{ iso_file_name }}"
+              url: "{{ iso_url }}"
+              storage: "{{ proxmox_storage }}"
+              node: "{{ proxmox_node }}"
+              checksum: "{{ _iso_remote_checksum if _iso_remote_checksum else omit }}"
+              checksum-algorithm: "{{ _iso_checksum_algorithm if _iso_remote_checksum else omit }}"
+          register: _iso_download_call
+          no_log: true
+
+        - name: Wait for the Proxmox storage download
+          ansible.builtin.uri:
+            url: "https://{{ proxmox_api_host }}/api2/json/nodes/{{ proxmox_node }}/tasks/{{ _iso_download_call.json.data | urlencode }}/status"
+            headers:
+              Authorization: "PVEAPIToken={{ proxmox_api_user }}!{{ proxmox_api_token_id }}={{ proxmox_api_token_secret }}"
+            validate_certs: "{{ proxmox_api_validate_certs | default(true) }}"
+            ca_path: "{{ lookup('env', 'RANGE42_PROXMOX_CA_FILE') | default(omit, true) }}"
+          register: _iso_download_status
+          until: _iso_download_status.json.data.status | default('') == 'stopped'
+          retries: 120
+          delay: 5
+          no_log: true
+
+        - name: Require a successful storage download
+          ansible.builtin.assert:
+            that: _iso_download_status.json.data.exitstatus | default('') == 'OK'
+            fail_msg: "The Proxmox storage image download failed."
+
+    - name: Record the storage image result
+      ansible.builtin.set_fact:
         storage_download_iso:
-          action: "storage_download_iso"
-          source: "proxmox"
+          action: storage_download_iso
+          source: proxmox
           proxmox_node: "{{ proxmox_node }}"
           proxmox_storage: "{{ proxmox_storage }}"
-
           iso_file_content_type: "{{ iso_file_content_type }}"
-          iso_file_name: "{{         iso_file_name }}"
-          iso_url: "{{               iso_url }}"
-
-          raw_info: "{{ proxmox_call.json }}" # orig json proxmox
-
-    - name: STORAGE - DOWNLOAD ISO - PRINT JSON
-      debug:
-        var: storage_download_iso
-
-  ####
-
-  vars:
-    # proxmox_storage: "local" # TODO - OVERWRITED_ARGUMENTS
-
-  ####
-
-  when: proxmox_vm_action == "storage_download_iso"
+          iso_file_name: "{{ iso_file_name }}"
+          iso_url: "{{ iso_url }}"
+          downloaded: "{{ _iso_download_needed }}"
+          checksum_available: "{{ _iso_remote_checksum != '' }}"
+          raw_info: "{{ _iso_download_call.json | default({}) if _iso_download_needed else {} }}"

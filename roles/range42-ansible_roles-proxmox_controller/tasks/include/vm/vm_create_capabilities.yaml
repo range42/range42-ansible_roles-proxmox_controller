@@ -1,0 +1,6 @@
+---
+- name: Advertise isolated template creation guards
+  ansible.builtin.set_fact:
+    range42_vm_create_capabilities:
+      version: 1
+      features: [atomic_template_owner, require_absent]

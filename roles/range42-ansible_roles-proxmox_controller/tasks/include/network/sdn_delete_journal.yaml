@@ -1,0 +1,23 @@
+---
+- name: NETWORK - DELETE - UPDATE PRIVATE DURABLE PHASE EVIDENCE
+  ansible.builtin.command:
+    argv:
+      - python3
+      - -c
+      - "{{ lookup('file', role_path ~ '/files/sdn_delete_journal.py') }}"
+      - "{{ sdn_delete_journal_operation }}"
+    stdin: "{{ sdn_delete_journal_request | to_json }}"
+  register: _sdn_delete_journal_result
+  changed_when: sdn_delete_journal_operation != 'check' and _sdn_delete_journal_result.rc == 0
+  failed_when: false
+  no_log: true
+
+- name: NETWORK - DELETE - REQUIRE OWNED DURABLE JOURNAL
+  ansible.builtin.assert:
+    that: _sdn_delete_journal_result.rc == 0
+    fail_msg: The private deletion journal is unavailable, unsafe or incomplete. Inspect the retained scope before retrying; no further deletion action is authorized.
+
+- name: NETWORK - DELETE - RETAIN JOURNAL RECEIPT PRIVATELY
+  ansible.builtin.set_fact:
+    network_sdn_delete_journal: "{{ _sdn_delete_journal_result.stdout | from_json }}"
+  no_log: true

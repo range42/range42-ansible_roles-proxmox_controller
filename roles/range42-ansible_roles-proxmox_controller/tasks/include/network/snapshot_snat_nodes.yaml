@@ -1,0 +1,67 @@
+---
+- name: NETWORK - SNAT - READ A REVIEWED SNAPSHOT FROM EVERY MAPPED NODE
+  ansible.builtin.command:
+    argv:
+      - python3
+      - -c
+      - "{{ lookup('file', role_path ~ '/files/snat_rules.py') }}"
+      - snapshot-reviewed
+    stdin: "{{ _sdn_snat_node.policy | to_json }}"
+  environment:
+    PATH: /usr/sbin:/sbin:/usr/bin:/bin
+  delegate_to: "{{ _sdn_snat_node.host }}"
+  loop: "{{ network_snat_plan.nodes }}"
+  loop_control:
+    loop_var: _sdn_snat_node
+    label: "{{ _sdn_snat_node.node }}"
+  register: _sdn_snat_snapshots_read
+  changed_when: false
+  failed_when: false
+  no_log: true
+
+- name: NETWORK - SNAT - VERIFY EVERY ACTUAL NODE AND SNAPSHOT POLICY
+  ansible.builtin.command:
+    argv:
+      - python3
+      - -c
+      - "{{ lookup('file', role_path ~ '/files/snat_cluster.py') }}"
+      - collect
+    stdin: >-
+      {%- set results = [] -%}
+      {%- for item in _sdn_snat_snapshots_read.results -%}
+      {%- set _ = results.append({'node': item._sdn_snat_node.node, 'rc': item.rc | default(-1), 'stdout': item.stdout | default('')}) -%}
+      {%- endfor -%}
+      {{ {'plan': network_snat_plan, 'results': results} | to_json }}
+  register: _sdn_snat_collected
+  changed_when: false
+  failed_when: false
+  no_log: true
+
+- name: NETWORK - SNAT - REQUIRE ALL NODE SNAPSHOTS BEFORE ANY MUTATION
+  ansible.builtin.assert:
+    that: _sdn_snat_collected.rc == 0
+    fail_msg: The NAT snapshot could not be verified on every mapped legacy iptables node; no network write is authorized.
+
+- name: NETWORK - SNAT - RETAIN THE PRIVATE SNAPSHOTS
+  ansible.builtin.set_fact:
+    network_snat_snapshots: "{{ _sdn_snat_collected.stdout | from_json }}"
+    network_snat_reload_baseline: {}
+    network_snat_apply_verified: false
+  no_log: true
+
+- name: NETWORK - SNAT - RETAIN THE PRIMARY NODE COMPATIBILITY VIEW
+  ansible.builtin.set_fact:
+    network_snat_snapshot: "{{ network_snat_snapshots[proxmox_node] }}"
+  no_log: true
+
+- name: NETWORK - SNAT - ESTABLISH IDLE RELOAD BASELINES ON EVERY NODE
+  ansible.builtin.include_tasks: snat_reload_baseline.yaml
+  loop: "{{ network_snat_plan.nodes }}"
+  loop_control:
+    loop_var: _sdn_snat_node
+    label: "{{ _sdn_snat_node.node }}"
+
+- name: NETWORK - SNAT - VERIFY THE COMPLETE SNAPSHOT WITHOUT AN APPLY ATTEMPT
+  ansible.builtin.set_fact:
+    network_snat_snapshot_verified: true
+    network_snat_apply_attempted: false
