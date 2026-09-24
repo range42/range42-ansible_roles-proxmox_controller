@@ -1,0 +1,4 @@
+---
+- name: VM BOOTSTRAP - VALIDATE OPTIONAL CONFIGURATION
+  ansible.builtin.set_fact:
+    _vm_bootstrap_extra_config: "{{ vm_extra_config | default({}) | range42_bootstrap_config }}"

@@ -1,0 +1,19 @@
+---
+- name: VM BOOTSTRAP - VALIDATE OPTIONAL CONFIGURATION
+  ansible.builtin.include_tasks: "{{ role_path }}/tasks/include/vm/vm_bootstrap_validate.yaml"
+
+- name: VM BOOTSTRAP - READ TEMPLATE NETWORK CONFIGURATION
+  uri:
+    url: "https://{{ proxmox_api_host }}/api2/json/nodes/{{ proxmox_node }}/qemu/{{ vm_template_id }}/config"
+    method: GET
+    headers:
+      Authorization: "PVEAPIToken={{ proxmox_api_user }}!{{ proxmox_api_token_id }}={{ proxmox_api_token_secret }}"
+    validate_certs: "{{ proxmox_api_validate_certs | default(false) }}"
+  register: _vm_bootstrap_template_config
+  no_log: true
+
+- name: VM BOOTSTRAP - REFUSE UNPLANNED TEMPLATE INTERFACES
+  ansible.builtin.assert:
+    that:
+      - _vm_bootstrap_template_config.json.data | default(none) | range42_bootstrap_template_config(_vm_bootstrap_extra_config)
+    quiet: true

@@ -10,6 +10,9 @@
 # https://lore.proxmox.com/all/20250408121312.312526-1-d.csapak@proxmox.com/
 # https://bugzilla.proxmox.com/show_bug.cgi?id=2424
 
+- name: CLOUD INIT - VALIDATE OPTIONAL CONFIGURATION
+  ansible.builtin.include_tasks: "{{ role_path }}/tasks/include/vm/vm_bootstrap_validate.yaml"
+
 - block:
     # net0 bridge changes require the VM to be stopped — hot-unplug fails if running
     - name: CLOUD INIT - CHECK IF VM IS RUNNING
@@ -47,14 +50,8 @@
       when: _ci_vm_status.json.data.status | default('stopped') == 'running'
 
     - name: CLOUD INIT - INJECT VARIABLE
-      uri:
-        url: "https://{{ proxmox_api_host }}/api2/json/nodes/{{ proxmox_node }}/qemu/{{ vm_id }}/config"
-        method: PUT
-        headers:
-          Authorization: "PVEAPIToken={{ proxmox_api_user }}!{{ proxmox_api_token_id }}={{ proxmox_api_token_secret }}"
-        validate_certs: "{{ proxmox_api_validate_certs | default(false) }}"
-        body_format: form-urlencoded
-        body:
+      vars:
+        _ci_base_config:
           ciuser: "{{ vm_ci_user | default(omit)  }}"
           cipassword: "{{ vm_ci_password | default(omit)  }}"
 #          sshkeys: "{{ vm_ci_ssh_key | urlencode | default(omit)  }}"
@@ -80,6 +77,14 @@
           #     {{ omit }}
           #   {% endif %}
           # ip6config0: "ip6=fd00::2/64,gw6=fd00::1" # format :  "ip6=fd00::2/64,gw6=fd00::1"
+      uri:
+        url: "https://{{ proxmox_api_host }}/api2/json/nodes/{{ proxmox_node }}/qemu/{{ vm_id }}/config"
+        method: PUT
+        headers:
+          Authorization: "PVEAPIToken={{ proxmox_api_user }}!{{ proxmox_api_token_id }}={{ proxmox_api_token_secret }}"
+        validate_certs: "{{ proxmox_api_validate_certs | default(false) }}"
+        body_format: form-urlencoded
+        body: "{{ _ci_base_config | combine(_vm_bootstrap_extra_config) }}"
 
       register: proxmox_call
 
