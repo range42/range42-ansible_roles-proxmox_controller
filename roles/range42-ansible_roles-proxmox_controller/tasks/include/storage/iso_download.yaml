@@ -1,59 +1,83 @@
 ---
-
+# Proxmox returns before download-url finishes. A stopped task must report OK
+# before a caller may import/resize the file. Final existing volumes are cached;
+# Proxmox keeps incomplete downloads under a temporary filename.
 - block:
-    ####
-    ####
-
-    - name: Download -  ISO
-      uri:
-        url: "https://{{ proxmox_api_host }}/api2/json/nodes/{{ proxmox_node }}/storage/{{ proxmox_storage }}/download-url"
-        method: POST
+    - name: STORAGE - DOWNLOAD ISO - READ EXISTING FINAL CONTENT
+      ansible.builtin.uri:
+        url: "https://{{ proxmox_api_host }}/api2/json/nodes/{{ proxmox_node }}/storage/{{ proxmox_storage }}/content"
+        method: GET
         headers:
           Authorization: "PVEAPIToken={{ proxmox_api_user }}!{{ proxmox_api_token_id }}={{ proxmox_api_token_secret }}"
         validate_certs: "{{ proxmox_api_validate_certs | default(false) }}"
-        body_format: form-urlencoded
-        body:
-          content: "{{   iso_file_content_type }}"
-          filename: "{{  iso_file_name }}"
-          url: "{{       iso_url }}"
-          storage: "{{   proxmox_storage }}"
-          node: "{{      proxmox_node }}"
-          # full: 1
-      register: proxmox_call
+      register: _image_existing_content
+      no_log: true
 
-    ####
-    ####
-    - name: STORAGE - DOWNLOAD ISO - PRINT proxmox_call
-      debug:
-        var: proxmox_call
+    - ansible.builtin.set_fact:
+        _image_download_cached: "{{ (_image_existing_content.json.data | selectattr('volid', 'equalto', proxmox_storage + ':' + iso_file_content_type + '/' + iso_file_name) | selectattr('size', 'gt', 0) | list | length) > 0 }}"
+        proxmox_call: {json: {data: null}}
 
-    - name: STORAGE - DOWNLOAD ISO - PRINT proxmox_call
-      debug:
-        var: proxmox_call
+    - name: STORAGE - DOWNLOAD ISO - START AND VERIFY THE NATIVE TASK
+      when: not _image_download_cached
+      block:
+        - name: Download - ISO
+          ansible.builtin.uri:
+            url: "https://{{ proxmox_api_host }}/api2/json/nodes/{{ proxmox_node }}/storage/{{ proxmox_storage }}/download-url"
+            method: POST
+            headers:
+              Authorization: "PVEAPIToken={{ proxmox_api_user }}!{{ proxmox_api_token_id }}={{ proxmox_api_token_secret }}"
+            validate_certs: "{{ proxmox_api_validate_certs | default(false) }}"
+            body_format: form-urlencoded
+            body:
+              content: "{{ iso_file_content_type }}"
+              filename: "{{ iso_file_name }}"
+              url: "{{ iso_url }}"
+              storage: "{{ proxmox_storage }}"
+              node: "{{ proxmox_node }}"
+          register: proxmox_call
+          changed_when: true
+          no_log: true
 
-    - name: STORAGE - DOWNLOAD ISO- BUILD JSON
-      set_fact:
+        - name: STORAGE - DOWNLOAD ISO - REQUIRE A NATIVE DOWNLOAD TASK
+          ansible.builtin.assert:
+            that:
+              - proxmox_call.json.data is string
+              - proxmox_call.json.data.startswith('UPID:' + proxmox_node + ':')
+            fail_msg: The image download returned no verifiable task; no import was attempted.
+
+        - name: STORAGE - DOWNLOAD ISO - WAIT FOR THE TASK TO FINISH
+          ansible.builtin.uri:
+            url: "https://{{ proxmox_api_host }}/api2/json/nodes/{{ proxmox_node }}/tasks/{{ proxmox_call.json.data }}/status"
+            method: GET
+            headers:
+              Authorization: "PVEAPIToken={{ proxmox_api_user }}!{{ proxmox_api_token_id }}={{ proxmox_api_token_secret }}"
+            validate_certs: "{{ proxmox_api_validate_certs | default(false) }}"
+          register: _image_download_status
+          until: (_image_download_status.status | default(0)) != 200 or (_image_download_status.json.data.status | default('')) == 'stopped'
+          retries: "{{ image_download_poll_retries | default(600) }}"
+          delay: "{{ image_download_poll_delay | default(2) }}"
+          no_log: true
+
+        - name: STORAGE - DOWNLOAD ISO - REQUIRE SUCCESS BEFORE IMPORT
+          ansible.builtin.assert:
+            that:
+              - _image_download_status.json.data.exitstatus | default('') == 'OK'
+            fail_msg: Image download failed. Read its Proxmox task log before retrying; no import was attempted.
+
+    - name: STORAGE - DOWNLOAD ISO - BUILD JSON
+      ansible.builtin.set_fact:
         storage_download_iso:
-          action: "storage_download_iso"
-          source: "proxmox"
+          action: storage_download_iso
+          source: proxmox
           proxmox_node: "{{ proxmox_node }}"
           proxmox_storage: "{{ proxmox_storage }}"
-
           iso_file_content_type: "{{ iso_file_content_type }}"
-          iso_file_name: "{{         iso_file_name }}"
-          iso_url: "{{               iso_url }}"
-
-          raw_info: "{{ proxmox_call.json }}" # orig json proxmox
+          iso_file_name: "{{ iso_file_name }}"
+          iso_url: "{{ iso_url }}"
+          raw_info: "{{ {'data': none} if _image_download_cached else proxmox_call.json }}"
+          cached: "{{ _image_download_cached }}"
 
     - name: STORAGE - DOWNLOAD ISO - PRINT JSON
-      debug:
+      ansible.builtin.debug:
         var: storage_download_iso
-
-  ####
-
-  vars:
-    # proxmox_storage: "local" # TODO - OVERWRITED_ARGUMENTS
-
-  ####
-
-  when: proxmox_vm_action == "storage_download_iso"
+  when: proxmox_vm_action == 'storage_download_iso'
