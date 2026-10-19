@@ -74,7 +74,7 @@
           iso_file_content_type: "{{ iso_file_content_type }}"
           iso_file_name: "{{ iso_file_name }}"
           iso_url: "{{ iso_url }}"
-          raw_info: "{{ proxmox_call.json }}"
+          raw_info: "{{ {'data': none} if _image_download_cached else proxmox_call.json }}"
           cached: "{{ _image_download_cached }}"
 
     - name: STORAGE - DOWNLOAD ISO - PRINT JSON
