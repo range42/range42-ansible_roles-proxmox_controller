@@ -11,7 +11,7 @@
 # https://bugzilla.proxmox.com/show_bug.cgi?id=2424
 
 - block:
-    # net0 bridge changes require the VM to be stopped — hot-unplug fails if running
+    # Read the VM first and send only the values that differ: a stop power-cuts a running guest.
     - name: CLOUD INIT - CHECK IF VM IS RUNNING
       uri:
         url: "https://{{ proxmox_api_host }}/api2/json/nodes/{{ proxmox_node }}/qemu/{{ vm_id }}/status/current"
@@ -21,17 +21,52 @@
         validate_certs: "{{ proxmox_api_validate_certs | default(false) }}"
       register: _ci_vm_status
       failed_when: false
+      check_mode: false  # read-only ; --check then lists the values that would change
 
-    - name: CLOUD INIT - STOP VM BEFORE APPLYING CONFIG (was running)
+    - name: CLOUD INIT - READ VM CONFIG
       uri:
-        url: "https://{{ proxmox_api_host }}/api2/json/nodes/{{ proxmox_node }}/qemu/{{ vm_id }}/status/stop"
+        url: "https://{{ proxmox_api_host }}/api2/json/nodes/{{ proxmox_node }}/qemu/{{ vm_id }}/config"
+        method: GET
+        headers:
+          Authorization: "PVEAPIToken={{ proxmox_api_user }}!{{ proxmox_api_token_id }}={{ proxmox_api_token_secret }}"
+        validate_certs: "{{ proxmox_api_validate_certs | default(false) }}"
+      register: _ci_vm_config
+      check_mode: false
+
+    # Proxmox masks cipassword on read (and stores a hash on Linux ostypes), so it cannot be compared:
+    # it is sent only when the VM has none yet or when ciuser or sshkeys change.
+    # net0 is compared on its model and bridge only: Proxmox adds the MAC address on write.
+    - name: CLOUD INIT - LIST THE VALUES THAT DIFFER FROM THE VM CONFIG
+      vars:
+        _cfg: "{{ _ci_vm_config.json.data }}"
+        _plain: "{{ _ci_want | dict2items | rejectattr('key', 'in', ['cipassword', 'net0']) }}"
+        _plain_diff: >-
+          {{ _plain | difference(_cfg | dict2items | selectattr('key', 'in', _plain | map(attribute='key')))
+             | map(attribute='key') }}
+        _net0_diff: >-
+          {{ vm_net_virtio_bridge is defined
+             and (_cfg.net0 | default('') is not match('virtio=')
+                  or (_cfg.net0 | default('') | regex_findall('bridge=([^,]+)') | first | default('')) != vm_net_virtio_bridge) }}
+        _pw_diff: >-
+          {{ vm_ci_password is defined
+             and (_cfg.cipassword is not defined or 'ciuser' in _plain_diff or 'sshkeys' in _plain_diff) }}
+      set_fact:
+        _ci_diff: "{{ _plain_diff + (['net0'] if _net0_diff | bool else []) + (['cipassword'] if _pw_diff | bool else []) }}"
+
+    # A net0 change cannot be hot-unplugged: shut the guest down (guest agent or ACPI), forced after 180 s.
+    - name: CLOUD INIT - SHUT DOWN VM BEFORE A NET0 CHANGE (no hot-unplug, forced stop after 180 s)
+      uri:
+        url: "https://{{ proxmox_api_host }}/api2/json/nodes/{{ proxmox_node }}/qemu/{{ vm_id }}/status/shutdown"
         method: POST
         headers:
           Authorization: "PVEAPIToken={{ proxmox_api_user }}!{{ proxmox_api_token_id }}={{ proxmox_api_token_secret }}"
         validate_certs: "{{ proxmox_api_validate_certs | default(false) }}"
         body_format: form-urlencoded
-        body: {}
-      when: _ci_vm_status.json.data.status | default('stopped') == 'running'
+        body:
+          timeout: 180
+          forceStop: 1
+      changed_when: true
+      when: _ci_restart | bool
 
     - name: CLOUD INIT - WAIT FOR VM TO STOP
       uri:
@@ -42,10 +77,11 @@
         validate_certs: "{{ proxmox_api_validate_certs | default(false) }}"
       register: _ci_vm_stop_check
       until: _ci_vm_stop_check.json.data.status == 'stopped'
-      retries: 30
+      retries: 45
       delay: 5
-      when: _ci_vm_status.json.data.status | default('stopped') == 'running'
+      when: _ci_restart | bool
 
+    # Cloud-init keys are accepted on a running VM ; the guest reads them at its next boot.
     - name: CLOUD INIT - INJECT VARIABLE
       uri:
         url: "https://{{ proxmox_api_host }}/api2/json/nodes/{{ proxmox_node }}/qemu/{{ vm_id }}/config"
@@ -54,38 +90,15 @@
           Authorization: "PVEAPIToken={{ proxmox_api_user }}!{{ proxmox_api_token_id }}={{ proxmox_api_token_secret }}"
         validate_certs: "{{ proxmox_api_validate_certs | default(false) }}"
         body_format: form-urlencoded
-        body:
-          ciuser: "{{ vm_ci_user | default(omit)  }}"
-          cipassword: "{{ vm_ci_password | default(omit)  }}"
-#          sshkeys: "{{ vm_ci_ssh_key | urlencode | default(omit)  }}"
-#          sshkeys: "{{ vm_ci_ssh_key | replace('/', '%2F') | urlencode | default(omit) }}"
-          sshkeys: "{{ vm_ci_ssh_key | trim | urlencode | replace('/', '%2F') }}"
-#          sshkeys: "{{ vm_ci_ssh_key | trim | urlencode | replace('/', '2%F') |   default(omit) }}"
-
-          searchdomain: "{{ vm_ci_dns_domain | default(omit)  }}"
-          nameserver: "{{ vm_ci_dns_ips | default(omit)  }}" # format :  1.1.1.1,2.2.2.2
-
-          # switch network bridge if vm_net_virtio_bridge is defined (e.g. template on vmbr140 → VM on vmbr142)
-          net0: "{{ ('virtio,bridge=' + vm_net_virtio_bridge) if vm_net_virtio_bridge is defined else omit }}"
-
-          ipconfig0: >-
-            {% if vm_ci_ip is defined %}ip={{ vm_ci_ip }}/{{ vm_ci_netmask }}{% if vm_ci_ip_gw is defined %},gw={{ vm_ci_ip_gw }}{% endif %}{% else %}{{ omit }}{% endif %}
-          # ipconfig0: >-
-          #   {% if vm_ci_ip is defined %}
-          #     ip={{ vm_ci_ip }}/{{ vm_ci_netmask }}
-          #       {% if vm_ci_ip_gw is defined %},
-          #         gw={{ vm_ci_ip_gw }}
-          #       {% endif %}
-          #   {% else %}
-          #     {{ omit }}
-          #   {% endif %}
-          # ip6config0: "ip6=fd00::2/64,gw6=fd00::1" # format :  "ip6=fd00::2/64,gw6=fd00::1"
-
+        body: "{{ _ci_want | dict2items | selectattr('key', 'in', _ci_diff) | items2dict }}"
       register: proxmox_call
+      changed_when: true
+      when: _ci_diff | length > 0
 
     - name: CLOUD INIT - INJECT VARIABLE
       debug:
         var: proxmox_call
+      when: _ci_diff | length > 0
 
     ####
     ####
@@ -101,10 +114,23 @@
         body_format: raw
         body: ""
       register: proxmox_call
+      changed_when: true
+      when: _ci_diff | length > 0
 
     - name: TEMPLATE - CONVERT VM TO TEMPLATE PRINT JSON
       debug:
         var: proxmox_call
+      when: _ci_diff | length > 0
+
+    - name: CLOUD INIT - START VM AGAIN AFTER THE NET0 CHANGE (was running)
+      uri:
+        url: "https://{{ proxmox_api_host }}/api2/json/nodes/{{ proxmox_node }}/qemu/{{ vm_id }}/status/start"
+        method: POST
+        headers:
+          Authorization: "PVEAPIToken={{ proxmox_api_user }}!{{ proxmox_api_token_id }}={{ proxmox_api_token_secret }}"
+        validate_certs: "{{ proxmox_api_validate_certs | default(false) }}"
+      changed_when: true
+      when: _ci_restart | bool
 
     ####
     ####
@@ -117,7 +143,8 @@
           source: "proxmox"
           proxmox_node: "{{ proxmox_node }}"
           vm_id: "{{ vm_id | int }}"
-          template_status: "regenerated"
+          template_status: "{{ 'unchanged' if _ci_diff | length == 0 else ('not written (check mode)' if ansible_check_mode else 'regenerated') }}"
+          changed_keys: "{{ _ci_diff }}"
 
           ciuser: "{{ vm_ci_user | default(omit)  }}"
           cipassword: "{{ 'redacted' | default(omit)  }}"
@@ -131,6 +158,19 @@
     - name: CLOUD INIT - PRINT JSON
       debug:
         var: cloudinit_set_variables
+
+  vars:
+    # Requested values, as the PUT sends them ; an undefined input is not sent.
+    _ci_want: >-
+      {{ {'sshkeys': vm_ci_ssh_key | trim | urlencode | replace('/', '%2F')}
+         | combine({'ciuser': vm_ci_user | string} if vm_ci_user is defined else {})
+         | combine({'cipassword': vm_ci_password | string} if vm_ci_password is defined else {})
+         | combine({'searchdomain': vm_ci_dns_domain | string} if vm_ci_dns_domain is defined else {})
+         | combine({'nameserver': vm_ci_dns_ips | string} if vm_ci_dns_ips is defined else {})
+         | combine({'net0': 'virtio,bridge=' ~ vm_net_virtio_bridge} if vm_net_virtio_bridge is defined else {})
+         | combine({'ipconfig0': 'ip=' ~ vm_ci_ip ~ '/' ~ vm_ci_netmask ~ ((',gw=' ~ vm_ci_ip_gw) if vm_ci_ip_gw is defined else '')}
+                   if vm_ci_ip is defined else {}) }}
+    _ci_restart: "{{ _ci_vm_status.json.data.status | default('stopped') == 'running' and 'net0' in _ci_diff }}"
 
   # when: proxmox_vm_action == "cloudinit_set_variables"
   when: proxmox_vm_action in ["cloudinit_set_variables", "template_create"]
