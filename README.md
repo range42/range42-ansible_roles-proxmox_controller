@@ -115,7 +115,7 @@ right task file:
 | `template_create` | Create a new VM template |
 | `template_convert_vm_to_template` | Convert existing VM to template |
 | `template_cloudinit_import_disk` | Import cloud-init disk image |
-| `cloudinit_set_variables` | Set cloud-init variables on a VM |
+| `cloudinit_set_variables` | Set cloud-init variables on a VM, idempotently: reads the VM config and sends only the values that differ, so a re-run on a running VM changes nothing and does not stop it. Cloud-init keys are written without a stop; the guest reads them at its next boot. A net0 model or bridge change shuts the guest down (guest agent or ACPI, forced stop after 180 s), then starts it again if it was running. Proxmox masks `cipassword` on read, so the role sends it only when the VM has none or when `ciuser` or `sshkeys` change: a password-only change is not applied |
 
 ### Storage (`storage_*`)
 
